@@ -248,6 +248,17 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Fizzle templates. These apply to `supabase start` only — the hosted project
+# reads its own copies from Authentication -> Emails, so paste the same files
+# there when they change (see README.md).
+[auth.email.template.confirmation]
+subject = "Mã xác thực Fizzle của bạn"
+content_path = "./supabase/templates/confirm-signup.html"
+
+[auth.email.template.recovery]
+subject = "Đặt lại mật khẩu Fizzle"
+content_path = "./supabase/templates/reset-password.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

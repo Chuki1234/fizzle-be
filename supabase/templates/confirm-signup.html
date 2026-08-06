@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Fizzle — Confirm signup
+
+  Built on the DESIGN-mintlify.md tokens, light mode: canvas #ffffff card on a
+  surface #f7f7f7 page, hairline #e5e5e5 borders, rounded.lg (12px) card,
+  rounded.md (8px) code box. brand-green appears exactly once — the brand dot —
+  because the doc reserves it for accent moments only.
+
+  Email-client constraints this file obeys:
+  - Tables for layout; <div> flex/grid is unsupported in Outlook.
+  - Every style is inline; only the dark-mode overrides live in <style>, since
+    <style> is stripped by some clients and the inline values must stand alone.
+  - No webfont <link>: Gmail and Outlook strip it, so Inter/Geist Mono are
+    requested by name and fall back to the system stack.
+  - No image assets — the mark is a CSS-drawn dot, so nothing breaks when a
+    client blocks remote images by default.
+-->
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Xác thực tài khoản Fizzle</title>
+<style>
+  /* Progressive enhancement: honored by Apple Mail and iOS Mail, ignored
+     elsewhere, which is why the inline light values above must already be
+     correct on their own. Dark values mirror theme-dark.css. */
+  @media (prefers-color-scheme: dark) {
+    .fz-page      { background-color: #0a0a0a !important; }
+    .fz-card      { background-color: #1c1c1e !important; border-color: #1f1f1f !important; }
+    .fz-ink       { color: #ffffff !important; }
+    .fz-body      { color: #b3b3b3 !important; }
+    .fz-muted     { color: #888888 !important; }
+    .fz-faint     { color: #5a5a5c !important; }
+    .fz-code-box  { background-color: #141416 !important; border-color: #1f1f1f !important; }
+    .fz-rule      { background-color: #1f1f1f !important; }
+  }
+
+  /* Small screens: shrink the card padding, never the code. */
+  @media only screen and (max-width: 600px) {
+    .fz-card-pad { padding: 24px !important; }
+    .fz-code     { font-size: 28px !important; letter-spacing: 6px !important; }
+  }
+</style>
+</head>
+
+<body class="fz-page" style="margin:0; padding:0; background-color:#f7f7f7;">
+
+<!-- Preheader: the grey preview line in the inbox list. Hidden in the body. -->
+<div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
+  Mã xác thực Fizzle của bạn: {{ .Token }}
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       class="fz-page" style="background-color:#f7f7f7;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
+             style="width:100%; max-width:600px;">
+
+        <!-- Brand -->
+        <tr>
+          <td style="padding-bottom:24px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <!-- The mark is a 10px rounded cell: no image, so it survives
+                     image-blocking clients. -->
+                <td style="width:10px; height:10px; background-color:#00d4a4; border-radius:9999px; font-size:0; line-height:0;">&nbsp;</td>
+                <td class="fz-ink" style="padding-left:10px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:18px; font-weight:600; letter-spacing:-0.3px; color:#0a0a0a;">
+                  Fizzle
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Card -->
+        <tr>
+          <td class="fz-card" bgcolor="#ffffff"
+              style="background-color:#ffffff; border:1px solid #e5e5e5; border-radius:12px;">
+
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td class="fz-card-pad" style="padding:32px;">
+
+                  <h1 class="fz-ink" style="margin:0 0 12px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:24px; font-weight:600; line-height:1.25; letter-spacing:-0.5px; color:#0a0a0a;">
+                    Xác thực tài khoản của bạn
+                  </h1>
+
+                  <p class="fz-body" style="margin:0 0 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:16px; font-weight:400; line-height:1.5; color:#3a3a3c;">
+                    Nhập mã bên dưới vào màn hình đăng ký để hoàn tất việc tạo tài khoản Fizzle.
+                  </p>
+
+                  <!-- The code is the whole point of the email, so it gets the
+                       card's one hero element: mono, oversized, spaced. -->
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td class="fz-code-box" align="center" bgcolor="#f7f7f7"
+                          style="background-color:#f7f7f7; border:1px solid #e5e5e5; border-radius:8px; padding:20px 16px;">
+                        <div class="fz-code fz-ink" style="font-family:'Geist Mono','SF Mono',Menlo,Consolas,monospace; font-size:32px; font-weight:600; line-height:1.2; letter-spacing:8px; color:#0a0a0a;">
+                          {{ .Token }}
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <p class="fz-muted" style="margin:16px 0 0; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; font-weight:400; line-height:1.4; color:#888888;">
+                    Mã có hiệu lực trong 60 phút và chỉ dùng được một lần.
+                  </p>
+
+                  <!-- Hairline as a filled cell: <hr> renders inconsistently. -->
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td class="fz-rule" style="height:1px; background-color:#ededed; font-size:0; line-height:0; padding:0;">&nbsp;</td>
+                    </tr>
+                  </table>
+
+                  <p class="fz-muted" style="margin:24px 0 0; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; font-weight:400; line-height:1.5; color:#888888;">
+                    Nếu bạn không tạo tài khoản Fizzle, hãy bỏ qua email này — sẽ không có tài khoản nào được kích hoạt.
+                  </p>
+
+                </td>
+              </tr>
+            </table>
+
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td align="center" style="padding-top:24px;">
+            <p class="fz-faint" style="margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; font-weight:500; line-height:1.4; color:#a8a8aa;">
+              Fizzle · Email tự động, vui lòng không trả lời
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

@@ -24,16 +24,22 @@ import type {
   UserDto,
 } from './auth.types';
 import type {
+  ForgotPasswordDto,
   LoginDto,
   RegisterDto,
   ResendOtpDto,
+  ResetPasswordDto,
   VerifyOtpDto,
+  VerifyResetCodeDto,
 } from './dto/auth.dto';
 import {
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
   resendOtpSchema,
+  resetPasswordSchema,
   verifyOtpSchema,
+  verifyResetCodeSchema,
 } from './dto/auth.dto';
 import {
   REFRESH_COOKIE,
@@ -91,6 +97,43 @@ export class AuthController {
     @Body(new ZodValidationPipe(resendOtpSchema)) dto: ResendOtpDto,
   ): Promise<void> {
     return this.auth.resendOtp(dto.email);
+  }
+
+  /** Same 3-per-5-minutes budget as resend-otp — both send an email. */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 3, ttl: 300_000 } })
+  forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordSchema)) dto: ForgotPasswordDto,
+  ): Promise<void> {
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  /**
+   * Step 1 of recovery. Returns a ticket rather than a session — the caller
+   * has proved they hold the code, not that they know the password.
+   */
+  @Post('verify-reset-code')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  verifyResetCode(
+    @Body(new ZodValidationPipe(verifyResetCodeSchema)) dto: VerifyResetCodeDto,
+  ): Promise<{ resetToken: string; expiresIn: number }> {
+    return this.auth.verifyResetCode(dto.email, dto.code);
+  }
+
+  /**
+   * Step 2 of recovery. Deliberately returns no session: changing the password
+   * revokes every existing one, so the user signs in again with the new
+   * credentials.
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordSchema)) dto: ResetPasswordDto,
+  ): Promise<void> {
+    return this.auth.resetPassword(dto.resetToken, dto.password);
   }
 
   @Post('refresh')
