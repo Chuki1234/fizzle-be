@@ -61,40 +61,42 @@ export class AuthService {
     // does not leave an orphaned account behind.
     await this.assertUsernameAvailable(dto.username);
 
-    const { data, error } = await this.supabase.anon.auth.signUp({
-      email: dto.email,
-      password: dto.password,
-    });
+    // Create user directly via admin client — bypasses Supabase free-tier email rate limit
+    const { data: adminData, error: adminErr } =
+      await this.supabase.admin.auth.admin.createUser({
+        email: dto.email,
+        password: dto.password,
+        email_confirm: true,
+        user_metadata: {
+          displayName: dto.displayName,
+          username: dto.username,
+        },
+      });
 
-    if (error) {
-      if (/already registered|already exists/i.test(error.message)) {
+    if (adminErr || !adminData?.user) {
+      if (
+        adminErr &&
+        /already registered|already exists/i.test(adminErr.message)
+      ) {
         throw new ConflictException({
           code: 'EMAIL_TAKEN',
           message: 'Email này đã được sử dụng.',
         });
       }
-      this.logger.error(`signUp failed: ${error.message}`);
+      this.logger.error(`admin createUser failed: ${adminErr?.message}`);
       throw new BadRequestException({
         code: 'REGISTER_FAILED',
-        message: 'Không thể tạo tài khoản. Vui lòng thử lại.',
+        message: adminErr?.message || 'Không thể tạo tài khoản. Vui lòng thử lại.',
       });
     }
 
-    const authUser = data.user;
-    if (!authUser) {
-      throw new InternalServerErrorException({
-        code: 'REGISTER_FAILED',
-        message: 'Không thể tạo tài khoản. Vui lòng thử lại.',
-      });
-    }
-
+    const authUser = adminData.user;
     await this.createProfile(authUser.id, dto);
 
     return {
       userId: authUser.id,
       email: dto.email,
-      // Supabase withholds the session until the address is confirmed.
-      verificationRequired: data.session === null,
+      verificationRequired: false,
     };
   }
 

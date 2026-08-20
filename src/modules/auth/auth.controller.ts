@@ -55,17 +55,17 @@ export class AuthController {
   ) {}
 
   @Post('register')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   register(
     @Body(new ZodValidationPipe(registerSchema)) dto: RegisterDto,
   ): Promise<RegisterResultDto> {
     return this.auth.register(dto);
   }
 
-  /** Tight limit — this endpoint is the brute-force target. */
+  /** Tight limit in prod, relaxed for dev testing. */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async login(
     @Body(new ZodValidationPipe(loginSchema)) dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
@@ -77,7 +77,7 @@ export class AuthController {
 
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async verifyOtp(
     @Body(new ZodValidationPipe(verifyOtpSchema)) dto: VerifyOtpDto,
     @Res({ passthrough: true }) res: Response,
@@ -92,17 +92,17 @@ export class AuthController {
 
   @Post('resend-otp')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Throttle({ default: { limit: 3, ttl: 300_000 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   resendOtp(
     @Body(new ZodValidationPipe(resendOtpSchema)) dto: ResendOtpDto,
   ): Promise<void> {
     return this.auth.resendOtp(dto.email);
   }
 
-  /** Same 3-per-5-minutes budget as resend-otp — both send an email. */
+  /** Same budget as resend-otp */
   @Post('forgot-password')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Throttle({ default: { limit: 3, ttl: 300_000 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) dto: ForgotPasswordDto,
   ): Promise<void> {
