@@ -17,7 +17,7 @@ async function bootstrap() {
     origin: config
       .get('CORS_ORIGINS', { infer: true })
       .split(',')
-      .map((o) => o.trim())
+      .map((o) => o.trim().replace(/\/+$/, ''))
       .filter(Boolean),
     credentials: true,
   });
