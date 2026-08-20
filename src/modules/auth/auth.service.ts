@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Session, User } from '@supabase/supabase-js';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
-import { LoginDto, MIN_AGE, RegisterDto, isOldEnough } from './dto/auth.dto';
+import { LoginDto, MIN_AGE, RegisterDto, UpdateProfileDto, isOldEnough } from './dto/auth.dto';
 import {
   AuthSessionDto,
   ProfileRow,
@@ -304,6 +304,59 @@ export class AuthService {
 
     const profile = await this.loadProfile(data.user.id);
     return toUserDto(profile, data.user.email ?? '', !!data.user.email_confirmed_at);
+  }
+
+  async updateProfile(
+    userId: string,
+    currentEmail: string,
+    emailVerified: boolean,
+    dto: UpdateProfileDto,
+  ): Promise<UserDto> {
+    const currentProfile = await this.loadProfile(userId);
+
+    if (dto.username && dto.username !== currentProfile.username) {
+      await this.assertUsernameAvailable(dto.username);
+    }
+
+    const updates: Partial<ProfileRow> = {};
+    if (dto.username !== undefined) updates.username = dto.username;
+    if (dto.displayName !== undefined) updates.display_name = dto.displayName;
+    if (dto.avatarUrl !== undefined) updates.avatar_url = dto.avatarUrl;
+    if (dto.bannerUrl !== undefined) updates.banner_url = dto.bannerUrl;
+    if (dto.statusMessage !== undefined) updates.status_message = dto.statusMessage;
+    if (dto.presence !== undefined) updates.presence = dto.presence;
+    if (dto.birthdate !== undefined) updates.birthdate = dto.birthdate;
+    if (dto.acceptsMarketingEmail !== undefined)
+      updates.accepts_marketing_email = dto.acceptsMarketingEmail;
+    if (dto.twoFactorEnabled !== undefined)
+      updates.two_factor_enabled = dto.twoFactorEnabled;
+
+    if (Object.keys(updates).length === 0) {
+      return toUserDto(currentProfile, currentEmail, emailVerified);
+    }
+
+    const { data: updatedProfile, error } = await this.supabase.admin
+      .from('profiles')
+      .update(updates)
+      .eq('id', userId)
+      .select('*')
+      .single<ProfileRow>();
+
+    if (error || !updatedProfile) {
+      if (error?.code === PG_UNIQUE_VIOLATION) {
+        throw new ConflictException({
+          code: 'USERNAME_TAKEN',
+          message: 'Tên đăng nhập này đã có người dùng.',
+        });
+      }
+      this.logger.error(`profile update failed for ${userId}: ${error?.message}`);
+      throw new InternalServerErrorException({
+        code: 'PROFILE_UPDATE_FAILED',
+        message: 'Không thể cập nhật hồ sơ người dùng.',
+      });
+    }
+
+    return toUserDto(updatedProfile, currentEmail, emailVerified);
   }
 
   /* --- internals -------------------------------------------------------- */

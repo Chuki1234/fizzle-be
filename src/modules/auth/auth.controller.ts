@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -29,6 +30,7 @@ import type {
   RegisterDto,
   ResendOtpDto,
   ResetPasswordDto,
+  UpdateProfileDto,
   VerifyOtpDto,
   VerifyResetCodeDto,
 } from './dto/auth.dto';
@@ -38,6 +40,7 @@ import {
   registerSchema,
   resendOtpSchema,
   resetPasswordSchema,
+  updateProfileSchema,
   verifyOtpSchema,
   verifyResetCodeSchema,
 } from './dto/auth.dto';
@@ -164,6 +167,22 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: UserDto): { user: UserDto } {
     return { user };
+  }
+
+  @Patch('me')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(updateProfileSchema)) dto: UpdateProfileDto,
+  ): Promise<{ user: UserDto }> {
+    const updatedUser = await this.auth.updateProfile(
+      user.id,
+      user.email,
+      user.emailVerified,
+      dto,
+    );
+    return { user: updatedUser };
   }
 
   @Post('logout')

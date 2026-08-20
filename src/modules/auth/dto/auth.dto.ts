@@ -94,6 +94,30 @@ export const resetPasswordSchema = z.object({
 });
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
 
+export const updateProfileSchema = z.object({
+  displayName: z
+    .string()
+    .min(1, { error: 'Tên hiển thị không được để trống.' })
+    .max(32, { error: 'Tên hiển thị không được vượt quá 32 ký tự.' })
+    .optional(),
+  username: z
+    .string()
+    .min(2, { error: 'Tên đăng nhập phải có ít nhất 2 ký tự.' })
+    .max(32, { error: 'Tên đăng nhập không được vượt quá 32 ký tự.' })
+    .regex(/^[a-z0-9._]+$/, {
+      error: 'Chỉ dùng chữ thường, số, dấu chấm và gạch dưới.',
+    })
+    .optional(),
+  avatarUrl: z.string().nullable().optional(),
+  bannerUrl: z.string().nullable().optional(),
+  statusMessage: z.string().max(128).nullable().optional(),
+  presence: z.enum(['online', 'idle', 'dnd', 'offline']).optional(),
+  birthdate: z.iso.date({ error: 'Ngày sinh không hợp lệ.' }).nullable().optional(),
+  acceptsMarketingEmail: z.boolean().optional(),
+  twoFactorEnabled: z.boolean().optional(),
+});
+export type UpdateProfileDto = z.infer<typeof updateProfileSchema>;
+
 /** Rejects an under-age birthdate. Kept out of the schema so the message can
  *  name the limit without duplicating the date parsing. */
 export function isOldEnough(birthdate: string, today = new Date()): boolean {
@@ -107,3 +131,4 @@ export function isOldEnough(birthdate: string, today = new Date()): boolean {
 }
 
 export { MIN_AGE };
+
