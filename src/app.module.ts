@@ -7,6 +7,8 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ConfigModule } from './config/config.module';
 import { SupabaseModule } from './infra/supabase/supabase.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ServersModule } from './modules/servers/servers.module';
+import { MessagesModule } from './modules/messages/messages.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { AuthModule } from './modules/auth/auth.module';
     // Baseline limit for every route; auth endpoints tighten it with @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
     AuthModule,
+    ServersModule,
+    MessagesModule,
   ],
   controllers: [AppController],
   providers: [
