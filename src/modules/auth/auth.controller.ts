@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Req,
   Res,
@@ -23,6 +25,8 @@ import type {
   RegisterResultDto,
   UserDto,
 } from './auth.types';
+import type { AdoptOAuthDto, OAuthProvider } from './dto/auth.dto';
+import { OAUTH_PROVIDERS, adoptOAuthSchema } from './dto/auth.dto';
 import type {
   ForgotPasswordDto,
   LoginDto,
@@ -164,6 +168,56 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: UserDto): { user: UserDto } {
     return { user };
+  }
+
+  /**
+   * Bắt đầu đăng nhập OAuth: đẩy trình duyệt sang trang authorize của Supabase.
+   * Supabase lo redirect tiếp sang GitHub/Google, rồi quay về FE /auth/callback
+   * kèm token (implicit flow — không có code_challenge).
+   */
+  @Get('oauth/:provider')
+  oauthStart(
+    @Param('provider') provider: string,
+    @Res() res: Response,
+  ): void {
+    if (!OAUTH_PROVIDERS.includes(provider as OAuthProvider)) {
+      throw new BadRequestException({
+        code: 'UNSUPPORTED_PROVIDER',
+        message: 'Nhà cung cấp đăng nhập không được hỗ trợ.',
+      });
+    }
+
+    const supabaseUrl = this.config.get('SUPABASE_URL', { infer: true });
+    const feBase = this.config
+      .get('CORS_ORIGINS', { infer: true })
+      .split(',')[0]
+      .trim();
+    const redirectTo = `${feBase}/auth/callback`;
+
+    const authorizeUrl =
+      `${supabaseUrl}/auth/v1/authorize` +
+      `?provider=${provider}` +
+      `&redirect_to=${encodeURIComponent(redirectTo)}`;
+
+    res.redirect(HttpStatus.FOUND, authorizeUrl);
+  }
+
+  /**
+   * FE gửi refresh-token lấy được từ luồng OAuth; ta đổi thành phiên Fizzle
+   * (tạo profile nếu lần đầu) và phát refresh-cookie như đăng nhập thường.
+   */
+  @Post('oauth/adopt')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async oauthAdopt(
+    @Body(new ZodValidationPipe(adoptOAuthSchema)) dto: AdoptOAuthDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthSessionDto> {
+    const { session, refreshToken } = await this.auth.adoptOAuthSession(
+      dto.refreshToken,
+    );
+    setRefreshCookie(res, refreshToken, this.cookieContext());
+    return session;
   }
 
   @Post('logout')

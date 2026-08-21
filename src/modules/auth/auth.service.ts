@@ -375,6 +375,89 @@ export class AuthService {
     return data;
   }
 
+  /**
+   * "Nhận" một phiên do đăng nhập OAuth (GitHub/Google) tạo ra.
+   *
+   * Luồng OAuth của Supabase trả token thẳng về trình duyệt (không qua login).
+   * FE gửi refresh-token đó lên đây; ta đổi lấy phiên mới để xác thực, tạo hàng
+   * `profiles` nếu user OAuth này lần đầu vào (đăng nhập OAuth không đi qua
+   * `register` nên chưa có profile), rồi trả về đúng dạng phiên như login thường.
+   */
+  async adoptOAuthSession(refreshToken: string): Promise<AuthSessionAndRefresh> {
+    const { data, error } = await this.supabase.anon.auth.refreshSession({
+      refresh_token: refreshToken,
+    });
+
+    if (error || !data.session || !data.user) {
+      throw new UnauthorizedException({
+        code: 'OAUTH_SESSION_INVALID',
+        message: 'Phiên đăng nhập mạng xã hội không hợp lệ. Vui lòng thử lại.',
+      });
+    }
+
+    await this.ensureProfileForOAuth(data.user);
+    return this.buildSession(data.session, data.user);
+  }
+
+  /** Tạo profile cho user OAuth lần đầu; bỏ qua nếu đã có. */
+  private async ensureProfileForOAuth(user: User): Promise<void> {
+    const { data: existing } = await this.supabase.admin
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (existing) return;
+
+    const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+    const emailLocal = (user.email ?? '').split('@')[0] ?? '';
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+
+    const displayName =
+      (str(meta['full_name']) || str(meta['name']) || str(meta['user_name']) ||
+        emailLocal || 'Người dùng').slice(0, 32);
+    const avatarUrl =
+      str(meta['avatar_url']) || str(meta['picture']) || null;
+
+    const rawBase = (str(meta['user_name']) || emailLocal || 'user')
+      .toLowerCase()
+      .replace(/[^a-z0-9._]/g, '')
+      .slice(0, 26);
+    const base = rawBase.length >= 2 ? rawBase : `user${rawBase}`;
+    const username = await this.uniqueUsername(base);
+
+    const { error } = await this.supabase.admin.from('profiles').insert({
+      id: user.id,
+      username,
+      display_name: displayName || 'Người dùng',
+      avatar_url: avatarUrl,
+      birthdate: null,
+    });
+
+    // Thua race trên unique index giữa lúc kiểm và lúc insert — coi như đã có.
+    if (error && error.code !== PG_UNIQUE_VIOLATION) {
+      this.logger.error(`OAuth profile insert failed for ${user.id}: ${error.message}`);
+      throw new InternalServerErrorException({
+        code: 'PROFILE_CREATE_FAILED',
+        message: 'Không thể tạo hồ sơ người dùng. Vui lòng thử lại.',
+      });
+    }
+  }
+
+  /** Tìm username chưa bị trùng, bắt đầu từ `base` rồi thêm số ngẫu nhiên. */
+  private async uniqueUsername(base: string): Promise<string> {
+    let candidate = base.slice(0, 32);
+    for (let i = 0; i < 5; i++) {
+      const { data } = await this.supabase.admin
+        .from('profiles')
+        .select('id')
+        .eq('username', candidate)
+        .maybeSingle();
+      if (!data) return candidate;
+      candidate = `${base}${Math.floor(1000 + Math.random() * 9000)}`.slice(0, 32);
+    }
+    return `${base}${Date.now().toString().slice(-6)}`.slice(0, 32);
+  }
+
   private async buildSession(
     session: Session,
     user: User,

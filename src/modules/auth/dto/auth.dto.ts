@@ -94,6 +94,17 @@ export const resetPasswordSchema = z.object({
 });
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
 
+/** Body của POST /auth/oauth/adopt — FE gửi refresh-token nhận từ luồng OAuth. */
+export const adoptOAuthSchema = z.object({
+  refreshToken: z.string().min(1, { error: 'Thiếu refresh token.' }),
+});
+export type AdoptOAuthDto = z.infer<typeof adoptOAuthSchema>;
+
+/** Provider OAuth được hỗ trợ. */
+export const OAUTH_PROVIDERS = ['github', 'google'] as const;
+export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
+
+
 /** Rejects an under-age birthdate. Kept out of the schema so the message can
  *  name the limit without duplicating the date parsing. */
 export function isOldEnough(birthdate: string, today = new Date()): boolean {
