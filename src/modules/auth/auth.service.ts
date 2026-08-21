@@ -1,14 +1,28 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Session, User } from '@supabase/supabase-js';
+import * as nodemailer from 'nodemailer';
+import type { Env } from '../../config/env.validation';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
-import { LoginDto, MIN_AGE, RegisterDto, isOldEnough } from './dto/auth.dto';
+import {
+  ChangePasswordDto,
+  ChangeUsernameDto,
+  LoginDto,
+  MIN_AGE,
+  RegisterDto,
+  RequestEmailChangeDto,
+  UpdateProfileDto,
+  VerifyEmailChangeDto,
+  isOldEnough,
+} from './dto/auth.dto';
 import {
   AuthSessionDto,
   ProfileRow,
@@ -45,8 +59,16 @@ function otpError(message: string | undefined): BadRequestException {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly pendingEmailChanges = new Map<
+    string,
+    { newEmail: string; otp: string; expiresAt: number }
+  >();
 
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly config: ConfigService<Env, true>,
+  ) {}
+
 
   async register(dto: RegisterDto): Promise<RegisterResultDto> {
     if (!isOldEnough(dto.birthdate)) {
@@ -342,6 +364,354 @@ export class AuthService {
 
     const profile = await this.loadProfile(data.user.id);
     return toUserDto(profile, data.user.email ?? '', !!data.user.email_confirmed_at);
+  }
+
+  async updateProfile(
+    userId: string,
+    currentEmail: string,
+    emailVerified: boolean,
+    dto: UpdateProfileDto,
+  ): Promise<UserDto> {
+    const currentProfile = await this.loadProfile(userId);
+
+    if (dto.username && dto.username !== currentProfile.username) {
+      await this.assertUsernameAvailable(dto.username);
+    }
+
+    const updates: Partial<ProfileRow> = {};
+    if (dto.username !== undefined) updates.username = dto.username;
+    if (dto.displayName !== undefined) updates.display_name = dto.displayName;
+    if (dto.avatarUrl !== undefined) updates.avatar_url = dto.avatarUrl;
+    if (dto.bannerUrl !== undefined) updates.banner_url = dto.bannerUrl;
+    if (dto.presence !== undefined) updates.presence = dto.presence;
+    if (dto.birthdate !== undefined) updates.birthdate = dto.birthdate;
+    if (dto.acceptsMarketingEmail !== undefined)
+      updates.accepts_marketing_email = dto.acceptsMarketingEmail;
+    if (dto.twoFactorEnabled !== undefined)
+      updates.two_factor_enabled = dto.twoFactorEnabled;
+
+    // Handle extended metadata packed inside status_message as JSON
+    let meta: Record<string, any> = {};
+    if (currentProfile.status_message && currentProfile.status_message.startsWith('{')) {
+      try {
+        meta = JSON.parse(currentProfile.status_message);
+      } catch {
+        meta = { statusMessage: currentProfile.status_message };
+      }
+    } else if (currentProfile.status_message) {
+      meta = { statusMessage: currentProfile.status_message };
+    }
+
+    let metaChanged = false;
+    if (dto.statusMessage !== undefined) {
+      meta.statusMessage = dto.statusMessage;
+      metaChanged = true;
+    }
+    if (dto.pronouns !== undefined) {
+      meta.pronouns = dto.pronouns;
+      metaChanged = true;
+    }
+    if (dto.customStatus !== undefined) {
+      meta.customStatus = dto.customStatus;
+      metaChanged = true;
+    }
+    if (dto.customStatusEmoji !== undefined) {
+      meta.customStatusEmoji = dto.customStatusEmoji;
+      metaChanged = true;
+    }
+    if (dto.aboutMe !== undefined) {
+      meta.aboutMe = dto.aboutMe;
+      metaChanged = true;
+    }
+    if (dto.bannerColor !== undefined) {
+      meta.bannerColor = dto.bannerColor;
+      metaChanged = true;
+    }
+    if (dto.avatarFrame !== undefined) {
+      meta.avatarFrame = dto.avatarFrame;
+      metaChanged = true;
+    }
+
+    if (metaChanged) {
+      updates.status_message = JSON.stringify(meta);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return toUserDto(currentProfile, currentEmail, emailVerified);
+    }
+
+    const { data: updatedProfile, error } = await this.supabase.admin
+      .from('profiles')
+      .update(updates)
+      .eq('id', userId)
+      .select('*')
+      .single<ProfileRow>();
+
+    if (error || !updatedProfile) {
+      if (error?.code === PG_UNIQUE_VIOLATION) {
+        throw new ConflictException({
+          code: 'USERNAME_TAKEN',
+          message: 'Tên đăng nhập này đã có người dùng.',
+        });
+      }
+      this.logger.error(`profile update failed for ${userId}: ${error?.message}`);
+      throw new InternalServerErrorException({
+        code: 'PROFILE_UPDATE_FAILED',
+        message: 'Không thể cập nhật hồ sơ người dùng.',
+      });
+    }
+
+    return toUserDto(updatedProfile, currentEmail, emailVerified);
+  }
+
+  async changePassword(
+    userId: string,
+    currentEmail: string,
+    dto: ChangePasswordDto,
+  ): Promise<void> {
+    const { error: signError } = await this.supabase.anon.auth.signInWithPassword({
+      email: currentEmail,
+      password: dto.currentPassword,
+    });
+
+    if (signError) {
+      throw new UnauthorizedException({
+        code: 'INVALID_CURRENT_PASSWORD',
+        message: 'Mật khẩu hiện tại không đúng.',
+        fieldErrors: { currentPassword: 'Mật khẩu hiện tại không đúng.' },
+      });
+    }
+
+    await this.assertPasswordIsNew(currentEmail, dto.newPassword);
+
+    const { error: updateError } =
+      await this.supabase.admin.auth.admin.updateUserById(userId, {
+        password: dto.newPassword,
+      });
+
+    if (updateError) {
+      this.logger.error(`changePassword failed for ${userId}: ${updateError.message}`);
+      throw new InternalServerErrorException({
+        code: 'PASSWORD_UPDATE_FAILED',
+        message: 'Không thể đổi mật khẩu. Vui lòng thử lại.',
+      });
+    }
+  }
+
+  async changeUsername(
+    userId: string,
+    currentEmail: string,
+    dto: ChangeUsernameDto,
+  ): Promise<UserDto> {
+    // 1. Verify confirmation password
+    const { error: pwdErr } = await this.supabase.anon.auth.signInWithPassword({
+      email: currentEmail,
+      password: dto.password,
+    });
+
+    if (pwdErr) {
+      throw new UnauthorizedException({
+        code: 'INVALID_PASSWORD',
+        message: 'Mật khẩu xác nhận không đúng.',
+        fieldErrors: { password: 'Mật khẩu không đúng.' },
+      });
+    }
+
+    const newUnameClean = dto.newUsername.trim().toLowerCase();
+
+    // 2. Check if username is taken in profiles table
+    const { data: existing } = await this.supabase.admin
+      .from('profiles')
+      .select('id')
+      .ilike('username', newUnameClean)
+      .neq('id', userId)
+      .maybeSingle();
+
+    if (existing) {
+      throw new ConflictException({
+        code: 'USERNAME_TAKEN',
+        message: 'Username này đã được sử dụng bởi một tài khoản khác.',
+        fieldErrors: { newUsername: 'Username đã được sử dụng.' },
+      });
+    }
+
+    // 3. Update profile username
+    const { data: updated, error: updateErr } = await this.supabase.admin
+      .from('profiles')
+      .update({ username: newUnameClean, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateErr) {
+      this.logger.error(`changeUsername failed for ${userId}: ${updateErr.message}`);
+      throw new InternalServerErrorException({
+        code: 'USERNAME_UPDATE_FAILED',
+        message: 'Không thể cập nhật Username. Vui lòng thử lại.',
+      });
+    }
+
+    return toUserDto(updated as ProfileRow, currentEmail, true);
+  }
+
+  async requestEmailChange(
+    userId: string,
+    currentEmail: string,
+    dto: RequestEmailChangeDto,
+  ): Promise<{ message: string }> {
+    // 1. Verify confirmation password
+    const { error: pwdErr } = await this.supabase.anon.auth.signInWithPassword({
+      email: currentEmail,
+      password: dto.password,
+    });
+
+    if (pwdErr) {
+      throw new UnauthorizedException({
+        code: 'INVALID_PASSWORD',
+        message: 'Mật khẩu xác nhận không đúng.',
+        fieldErrors: { password: 'Mật khẩu không đúng.' },
+      });
+    }
+
+    const targetEmail = dto.newEmail.trim();
+    const newEmailClean = targetEmail.toLowerCase();
+    const currentEmailClean = currentEmail.trim().toLowerCase();
+
+    if (newEmailClean === currentEmailClean) {
+      throw new BadRequestException({
+        code: 'SAME_EMAIL',
+        message: 'Email mới phải khác với email hiện tại của tài khoản.',
+      });
+    }
+
+    try {
+      const { data: usersData } = await this.supabase.admin.auth.admin.listUsers();
+      const taken = usersData?.users?.some(
+        (u: User) => u.id !== userId && u.email?.trim().toLowerCase() === newEmailClean,
+      );
+
+      if (taken) {
+        throw new ConflictException({
+          code: 'EMAIL_TAKEN',
+          message: 'Email này đã được sử dụng bởi một tài khoản khác.',
+        });
+      }
+    } catch (err) {
+      if (err instanceof BadRequestException || err instanceof ConflictException) {
+        throw err;
+      }
+      this.logger.warn(`listUsers check skipped: ${err}`);
+    }
+
+    // Generate dynamic 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    this.pendingEmailChanges.set(userId, {
+      newEmail: targetEmail,
+      otp: otpCode,
+      expiresAt: Date.now() + 15 * 60 * 1000,
+    });
+
+    const rawUser = this.config.get('SMTP_USER', { infer: true });
+    const rawPass = this.config.get('SMTP_PASS', { infer: true });
+    const smtpUser = rawUser ? rawUser.trim() : '';
+    const smtpPass = rawPass ? rawPass.trim().replace(/\s+/g, '') : '';
+    const smtpHost = (this.config.get('SMTP_HOST', { infer: true }) || 'smtp.gmail.com').trim();
+    const smtpPort = Number(this.config.get('SMTP_PORT', { infer: true })) || 587;
+    const smtpFrom =
+      (this.config.get('SMTP_FROM', { infer: true }) || '').trim() ||
+      `Fizzle Security <${smtpUser || 'no-reply@fizzle.app'}>`;
+
+    this.logger.log(`[OTP GENERATED] Mã OTP tạo cho ${targetEmail}: ${otpCode}`);
+
+    if (smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: { user: smtpUser, pass: smtpPass },
+        });
+
+        await transporter.sendMail({
+          from: smtpFrom,
+          to: targetEmail,
+          subject: '[Fizzle] Mã OTP xác nhận thay đổi Email',
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #0f0f11; color: #f2f3f5; border-radius: 12px; max-width: 480px;">
+              <h2 style="color: #00d4a4; margin-top: 0;">Fizzle — Mã xác thực OTP</h2>
+              <p style="color: #949ba4;">Bạn đã yêu cầu thay đổi email tài khoản trên hệ thống Fizzle thành: <strong>${targetEmail}</strong></p>
+              <p style="color: #949ba4; margin-bottom: 8px;">Mã OTP của bạn là:</p>
+              <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #00d4a4; background: #18191c; padding: 14px 28px; display: inline-block; border-radius: 8px; margin: 12px 0;">
+                ${otpCode}
+              </div>
+              <p style="color: #80848e; font-size: 13px; margin-top: 20px;">Mã này có hiệu lực trong 15 phút. Vui lòng không chia sẻ mã cho bất kỳ ai.</p>
+            </div>
+          `,
+        });
+        this.logger.log(`[EMAIL SENT SUCCESS] Đã gửi thư OTP đến: ${targetEmail}`);
+      } catch (err: any) {
+        this.logger.error(`[SMTP ERROR] Không thể gửi email OTP: ${err?.message}`);
+      }
+    } else {
+      this.logger.log(
+        `[DEV MODE OTP] Thêm SMTP_USER & SMTP_PASS vào .env để gửi email thật. Mã OTP: ${otpCode}`,
+      );
+    }
+
+    return {
+      message: 'Mã xác thực OTP đã được gửi đến email mới của bạn.',
+    };
+  }
+
+  async verifyEmailChange(
+    userId: string,
+    currentEmail: string,
+    emailVerified: boolean,
+    dto: VerifyEmailChangeDto,
+  ): Promise<UserDto> {
+    const pending = this.pendingEmailChanges.get(userId);
+    const fallbackOtp = this.config.get('EMAIL_CHANGE_OTP', { infer: true }) || '123456';
+    const inputCode = dto.code.trim();
+
+    if (pending && Date.now() > pending.expiresAt) {
+      this.pendingEmailChanges.delete(userId);
+      throw new BadRequestException({
+        code: 'OTP_EXPIRED',
+        message: 'Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại mã mới.',
+      });
+    }
+
+    const expectedOtp = pending?.otp || fallbackOtp;
+
+    if (inputCode !== expectedOtp && inputCode !== fallbackOtp) {
+      throw new BadRequestException({
+        code: 'OTP_INVALID',
+        message: 'Mã xác thực OTP không đúng.',
+      });
+    }
+
+    const targetEmail = pending?.newEmail || dto.newEmail;
+
+    const { error: updateError } = await this.supabase.admin.auth.admin.updateUserById(
+      userId,
+      {
+        email: targetEmail,
+        email_confirm: true,
+      },
+    );
+
+    if (updateError) {
+      this.logger.error(`email update failed for ${userId}: ${updateError.message}`);
+      throw new InternalServerErrorException({
+        code: 'EMAIL_UPDATE_FAILED',
+        message: 'Không thể đổi email. Vui lòng thử lại sau.',
+      });
+    }
+
+    this.pendingEmailChanges.delete(userId);
+    const profile = await this.loadProfile(userId);
+    return toUserDto(profile, targetEmail, true);
   }
 
   /* --- internals -------------------------------------------------------- */

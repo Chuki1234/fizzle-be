@@ -44,6 +44,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
 }
 
 function toBody(exception: HttpException): ErrorBody {
+  if (
+    exception.getStatus() === HttpStatus.TOO_MANY_REQUESTS ||
+    exception.name === 'ThrottlerException' ||
+    /throttler|too many requests/i.test(exception.message)
+  ) {
+    return {
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Bạn đã gửi quá nhiều yêu cầu liên tục. Vui lòng thử lại sau 1 phút.',
+    };
+  }
+
   const payload = exception.getResponse();
 
   if (typeof payload === 'string') {
