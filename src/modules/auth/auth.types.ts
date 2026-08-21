@@ -22,6 +22,12 @@ export interface UserDto {
   avatarUrl: string | null;
   bannerUrl: string | null;
   statusMessage: string | null;
+  pronouns: string | null;
+  customStatus: string | null;
+  customStatusEmoji: string | null;
+  aboutMe: string | null;
+  bannerColor: string | null;
+  avatarFrame: string | null;
   presence: 'online' | 'idle' | 'dnd' | 'offline';
   birthdate: string | null;
   emailVerified: boolean;
@@ -47,6 +53,20 @@ export function toUserDto(
   email: string,
   emailVerified: boolean,
 ): UserDto {
+  let parsedMeta: Record<string, any> = {};
+  let displayStatusMessage: string | null = profile.status_message;
+
+  if (profile.status_message && profile.status_message.startsWith('{')) {
+    try {
+      parsedMeta = JSON.parse(profile.status_message);
+      if ('statusMessage' in parsedMeta) {
+        displayStatusMessage = parsedMeta.statusMessage;
+      }
+    } catch {
+      // Not JSON, treat as plain string
+    }
+  }
+
   return {
     id: profile.id,
     email,
@@ -54,7 +74,13 @@ export function toUserDto(
     displayName: profile.display_name,
     avatarUrl: profile.avatar_url,
     bannerUrl: profile.banner_url,
-    statusMessage: profile.status_message,
+    statusMessage: displayStatusMessage,
+    pronouns: parsedMeta.pronouns ?? null,
+    customStatus: parsedMeta.customStatus ?? displayStatusMessage,
+    customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
+    aboutMe: parsedMeta.aboutMe ?? null,
+    bannerColor: parsedMeta.bannerColor ?? null,
+    avatarFrame: parsedMeta.avatarFrame ?? null,
     presence: profile.presence,
     birthdate: profile.birthdate,
     emailVerified,
@@ -63,3 +89,4 @@ export function toUserDto(
     createdAt: profile.created_at,
   };
 }
+

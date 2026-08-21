@@ -21,6 +21,16 @@ export const envSchema = z.object({
 
   /** Omit in development so the cookie defaults to the request host. */
   COOKIE_DOMAIN: z.string().optional(),
+
+  /** OTP code for verifying email changes. */
+  EMAIL_CHANGE_OTP: z.string().default('123456'),
+
+  /** SMTP Mailer configuration */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
