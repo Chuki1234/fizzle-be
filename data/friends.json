@@ -48,6 +48,13 @@
       "userBId": "9abc5633-db6b-4579-bf6b-0331976e29cf",
       "status": "friend",
       "createdAt": "2026-08-22T04:54:22.333Z"
+    },
+    {
+      "id": "rel-1787374425952",
+      "userAId": "9abc5633-db6b-4579-bf6b-0331976e29cf",
+      "userBId": "khang",
+      "status": "friend",
+      "createdAt": "2026-08-22T04:53:45.952Z"
     }
   ],
   "customUsers": [
