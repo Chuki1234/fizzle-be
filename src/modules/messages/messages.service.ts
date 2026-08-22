@@ -46,6 +46,8 @@ const DEFAULT_DIRECT_MESSAGES: Record<string, ChatMessage[]> = {
   ],
 };
 
+import { SupabaseService } from '../../infra/supabase/supabase.service';
+
 interface StoredMessagesData {
   channelMessages: Record<string, ChatMessage[]>;
   directMessages: Record<string, ChatMessage[]>;
@@ -60,6 +62,7 @@ export class MessagesService implements OnModuleInit {
   };
 
   constructor(
+    private readonly supabase: SupabaseService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
   ) {}
@@ -70,56 +73,83 @@ export class MessagesService implements OnModuleInit {
   }
 
   private ensureStorage() {
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.storagePath)) {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private loadMessages() {
-    try {
-      const content = fs.readFileSync(this.storagePath, 'utf-8');
-      this.data = JSON.parse(content);
-      if (!this.data.channelMessages) this.data.channelMessages = DEFAULT_CHANNEL_MESSAGES;
-      if (!this.data.directMessages) this.data.directMessages = DEFAULT_DIRECT_MESSAGES;
-    } catch {
-      this.data = {
-        channelMessages: DEFAULT_CHANNEL_MESSAGES,
-        directMessages: DEFAULT_DIRECT_MESSAGES,
-      };
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private saveMessages() {
-    try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('Failed to save messages:', e);
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   getChannelMessages(channelId: string): ChatMessage[] {
     return this.data.channelMessages[channelId] || [];
   }
 
+  async addChannelMessageAsync(channelId: string, dto: CreateMessageDto): Promise<ChatMessage> {
+    return this.addChannelMessage(channelId, dto);
+  }
+
   addChannelMessage(channelId: string, dto: CreateMessageDto): ChatMessage {
+    const senderId = dto.senderId || 'user';
+    const avatarUrl = dto.senderAvatarUrl || dto.avatarUrl || null;
+
     const message: ChatMessage = {
       id: Date.now().toString(),
-      senderId: dto.senderId || 'user',
+      senderId: senderId,
       senderName: dto.senderName || 'Thiện Phúc',
+      senderAvatarUrl: avatarUrl,
+      avatarUrl: avatarUrl,
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
+    // Asynchronously resolve avatar from Supabase profiles if not present
+    if (!avatarUrl && senderId && senderId !== 'user') {
+      void (async () => {
+        try {
+          const { data } = await this.supabase.admin
+            .from('profiles')
+            .select('avatar_url, display_name')
+            .eq('id', senderId)
+            .single();
+          if (data?.avatar_url) {
+            message.senderAvatarUrl = data.avatar_url;
+            message.avatarUrl = data.avatar_url;
+          }
+          if (data?.display_name) {
+            message.senderName = data.display_name;
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
 
     if (!this.data.channelMessages[channelId]) {
       this.data.channelMessages[channelId] = [];
     }
 
     this.data.channelMessages[channelId].push(message);
-    this.saveMessages();
+
+    // Persist to Supabase if table exists
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('messages')
+          .insert({
+            channel_id: channelId,
+            sender_id: senderId,
+            sender_name: message.senderName,
+            text: message.text,
+            sender_avatar_url: avatarUrl,
+          });
+      } catch {
+        // ignore
+      }
+    })();
 
     // Broadcast in real-time
     try {
@@ -143,13 +173,39 @@ export class MessagesService implements OnModuleInit {
 
   addDirectMessage(friendId: string, dto: CreateMessageDto): ChatMessage {
     const senderId = dto.senderId || 'user';
+    const avatarUrl = dto.senderAvatarUrl || dto.avatarUrl || null;
+
     const message: ChatMessage = {
       id: Date.now().toString(),
       senderId: senderId,
       senderName: dto.senderName || 'Thiện Phúc',
+      senderAvatarUrl: avatarUrl,
+      avatarUrl: avatarUrl,
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
+    // Asynchronously resolve avatar from Supabase profiles if not present
+    if (!avatarUrl && senderId && senderId !== 'user') {
+      void (async () => {
+        try {
+          const { data } = await this.supabase.admin
+            .from('profiles')
+            .select('avatar_url, display_name')
+            .eq('id', senderId)
+            .single();
+          if (data?.avatar_url) {
+            message.senderAvatarUrl = data.avatar_url;
+            message.avatarUrl = data.avatar_url;
+          }
+          if (data?.display_name) {
+            message.senderName = data.display_name;
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
 
     const pairKey = [senderId, friendId].sort().join('--');
 
@@ -166,7 +222,22 @@ export class MessagesService implements OnModuleInit {
       this.data.directMessages[friendId].push(message);
     }
 
-    this.saveMessages();
+    // Persist to Supabase if direct_messages table exists
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('direct_messages')
+          .insert({
+            sender_id: senderId,
+            recipient_id: friendId,
+            sender_name: message.senderName,
+            text: message.text,
+            sender_avatar_url: avatarUrl,
+          });
+      } catch {
+        // ignore
+      }
+    })();
 
     // Broadcast in real-time to both users
     try {

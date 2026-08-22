@@ -44,34 +44,15 @@ export class ServersService implements OnModuleInit {
   }
 
   private ensureStorage() {
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.storagePath)) {
-      fs.writeFileSync(this.storagePath, JSON.stringify(DEFAULT_SERVERS, null, 2), 'utf-8');
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private loadServers() {
-    try {
-      const data = fs.readFileSync(this.storagePath, 'utf-8');
-      this.servers = JSON.parse(data);
-      // Migrate old servers without members field
-      for (const s of this.servers) {
-        if (!s.members) s.members = ['user'];
-      }
-    } catch {
-      this.servers = DEFAULT_SERVERS;
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private saveServers() {
-    try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.servers, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('Failed to save servers:', e);
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   getAllServers(): Server[] {

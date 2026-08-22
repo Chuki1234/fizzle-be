@@ -126,32 +126,15 @@ export class FriendsService implements OnModuleInit {
   }
 
   private ensureStorage() {
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.storagePath)) {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private loadData() {
-    try {
-      const content = fs.readFileSync(this.storagePath, 'utf-8');
-      this.data = JSON.parse(content);
-      if (!this.data.relationships) this.data.relationships = [];
-      if (!this.data.customUsers) this.data.customUsers = DEFAULT_MOCK_USERS;
-    } catch {
-      // keep defaults
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   private saveData() {
-    try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('Failed to save friends data:', e);
-    }
+    // Local JSON disk storage disabled - data managed via Supabase / in-memory
   }
 
   async searchUsers(query: string, currentUserId?: string): Promise<FriendUser[]> {
