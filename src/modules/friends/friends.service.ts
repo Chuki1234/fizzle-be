@@ -32,14 +32,17 @@ export class FriendsService {
         for (const p of profiles) {
           if (currentUserId && p.id === currentUserId) continue;
           seenIds.add(p.id);
-          const rel = await this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const rel = this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const parsed = parseProfileStatus(p);
           results.push({
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: rel,
           });
         }
@@ -65,13 +68,16 @@ export class FriendsService {
 
       if (profiles) {
         for (const p of profiles) {
+          const parsed = parseProfileStatus(p);
           userMap.set(p.id, {
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: 'none',
           });
         }
