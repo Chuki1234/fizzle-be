@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Headers } from '@nestjs/common';
 import { ServersService } from './servers.service';
 import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server.dto';
 
@@ -7,7 +7,14 @@ export class ServersController {
   constructor(private readonly serversService: ServersService) {}
 
   @Get()
-  getAllServers(): Server[] {
+  getAllServers(
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Server[] {
+    const effectiveUserId = userId || headerUserId;
+    if (effectiveUserId) {
+      return this.serversService.getServersByUserId(effectiveUserId);
+    }
     return this.serversService.getAllServers();
   }
 
@@ -17,7 +24,15 @@ export class ServersController {
   }
 
   @Post()
-  createServer(@Body() dto: CreateServerDto): Server {
+  createServer(
+    @Body() dto: CreateServerDto,
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Server {
+    const effectiveUserId = userId || headerUserId;
+    if (effectiveUserId) {
+      dto.creatorId = effectiveUserId;
+    }
     return this.serversService.createServer(dto);
   }
 
@@ -32,5 +47,34 @@ export class ServersController {
     @Param('channelId') channelId: string,
   ): { success: boolean; channelId: string } {
     return this.serversService.deleteChannel(serverId, channelId);
+  }
+
+  @Get(':id/invite')
+  generateInvite(
+    @Param('id') serverId: string,
+  ): { code: string; serverId: string; serverName: string } {
+    return this.serversService.generateInviteCode(serverId);
+  }
+
+  @Post(':id/invite-friend')
+  inviteFriend(
+    @Param('id') serverId: string,
+    @Body() body: { friendId: string; inviterId?: string },
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): { success: boolean } {
+    const inviterId = body.inviterId || userId || headerUserId || 'user';
+    return this.serversService.inviteFriendToServer(serverId, body.friendId, inviterId);
+  }
+
+  @Post('join/:code')
+  joinByCode(
+    @Param('code') code: string,
+    @Body() body: { userId?: string },
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Server {
+    const effectiveUserId = body.userId || userId || headerUserId || 'user';
+    return this.serversService.joinServerByCode(code, effectiveUserId);
   }
 }
