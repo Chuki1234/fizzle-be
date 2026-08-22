@@ -7,10 +7,10 @@ export class ServersController {
   constructor(private readonly serversService: ServersService) {}
 
   @Get()
-  getAllServers(
+  async getAllServers(
     @Query('userId') userId?: string,
     @Headers('x-user-id') headerUserId?: string,
-  ): Server[] {
+  ): Promise<Server[]> {
     const effectiveUserId = userId || headerUserId;
     if (effectiveUserId) {
       return this.serversService.getServersByUserId(effectiveUserId);
@@ -19,16 +19,16 @@ export class ServersController {
   }
 
   @Get(':id')
-  getServerById(@Param('id') id: string): Server {
+  async getServerById(@Param('id') id: string): Promise<Server> {
     return this.serversService.getServerById(id);
   }
 
   @Post()
-  createServer(
+  async createServer(
     @Body() dto: CreateServerDto,
     @Query('userId') userId?: string,
     @Headers('x-user-id') headerUserId?: string,
-  ): Server {
+  ): Promise<Server> {
     const effectiveUserId = userId || headerUserId;
     if (effectiveUserId) {
       dto.creatorId = effectiveUserId;
@@ -37,44 +37,45 @@ export class ServersController {
   }
 
   @Post(':id/channels')
-  addChannel(@Param('id') serverId: string, @Body() dto: CreateChannelDto): Channel {
+  async addChannel(@Param('id') serverId: string, @Body() dto: CreateChannelDto): Promise<Channel> {
     return this.serversService.addChannel(serverId, dto);
   }
 
   @Delete(':id/channels/:channelId')
-  deleteChannel(
+  async deleteChannel(
     @Param('id') serverId: string,
     @Param('channelId') channelId: string,
-  ): { success: boolean; channelId: string } {
+  ): Promise<{ success: boolean; channelId: string }> {
     return this.serversService.deleteChannel(serverId, channelId);
   }
 
   @Get(':id/invite')
-  generateInvite(
+  async generateInvite(
     @Param('id') serverId: string,
-  ): { code: string; serverId: string; serverName: string } {
+  ): Promise<{ code: string; serverId: string; serverName: string }> {
     return this.serversService.generateInviteCode(serverId);
   }
 
   @Post(':id/invite-friend')
-  inviteFriend(
+  async inviteFriend(
     @Param('id') serverId: string,
     @Body() body: { friendId: string; inviterId?: string },
     @Query('userId') userId?: string,
     @Headers('x-user-id') headerUserId?: string,
-  ): { success: boolean } {
+  ): Promise<{ success: boolean }> {
     const inviterId = body.inviterId || userId || headerUserId || 'user';
     return this.serversService.inviteFriendToServer(serverId, body.friendId, inviterId);
   }
 
   @Post('join/:code')
-  joinByCode(
+  async joinByCode(
     @Param('code') code: string,
     @Body() body: { userId?: string },
     @Query('userId') userId?: string,
     @Headers('x-user-id') headerUserId?: string,
-  ): Server {
+  ): Promise<Server> {
     const effectiveUserId = body.userId || userId || headerUserId || 'user';
     return this.serversService.joinServerByCode(code, effectiveUserId);
   }
 }
+

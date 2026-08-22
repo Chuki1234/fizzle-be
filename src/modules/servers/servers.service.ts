@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server.dto';
 import { EventsGateway } from '../events/events.gateway';
+import { SupabaseService } from '../../infra/supabase/supabase.service';
 
 const DEFAULT_SERVERS: Server[] = [
   {
@@ -29,72 +28,139 @@ const DEFAULT_SERVERS: Server[] = [
 ];
 
 @Injectable()
-export class ServersService implements OnModuleInit {
-  private readonly storagePath = path.resolve(process.cwd(), 'data', 'servers.json');
-  private servers: Server[] = [];
+export class ServersService {
+  private memoryServers: Server[] = DEFAULT_SERVERS;
 
   constructor(
+    private readonly supabase: SupabaseService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
   ) {}
 
-  onModuleInit() {
-    this.ensureStorage();
-    this.loadServers();
-  }
-
-  private ensureStorage() {
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.storagePath)) {
-      fs.writeFileSync(this.storagePath, JSON.stringify(DEFAULT_SERVERS, null, 2), 'utf-8');
-    }
-  }
-
-  private loadServers() {
+  async getAllServers(): Promise<Server[]> {
     try {
-      const data = fs.readFileSync(this.storagePath, 'utf-8');
-      this.servers = JSON.parse(data);
-      // Migrate old servers without members field
-      for (const s of this.servers) {
-        if (!s.members) s.members = ['user'];
+      const { data: dbServers, error } = await this.supabase.admin
+        .from('servers')
+        .select('*, channels(*)');
+
+      if (!error && dbServers && dbServers.length > 0) {
+        const { data: members } = await this.supabase.admin.from('server_members').select('*');
+        const memberMap = new Map<string, string[]>();
+        if (members) {
+          for (const m of members) {
+            if (!memberMap.has(m.server_id)) memberMap.set(m.server_id, []);
+            memberMap.get(m.server_id)!.push(m.user_id);
+          }
+        }
+
+        const mapped: Server[] = dbServers.map((s) => ({
+          id: s.id,
+          name: s.name,
+          icon: s.icon || '🔥',
+          channels: (s.channels || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+          })),
+          members: memberMap.get(s.id) || [s.creator_id],
+        }));
+
+        this.memoryServers = mapped;
+        return mapped;
+      }
+    } catch (e) {
+      console.warn('Supabase getAllServers failed, using memory fallback:', e);
+    }
+
+    return this.memoryServers;
+  }
+
+  async getServersByUserId(userId: string): Promise<Server[]> {
+    const effectiveUserId = userId || 'user';
+
+    try {
+      // 1. Query server_members for this user
+      const { data: memberRows } = await this.supabase.admin
+        .from('server_members')
+        .select('server_id')
+        .eq('user_id', effectiveUserId);
+
+      const serverIds = (memberRows || []).map((r) => r.server_id);
+
+      // 2. Query servers
+      let query = this.supabase.admin.from('servers').select('*, channels(*)');
+      if (serverIds.length > 0) {
+        query = query.or(`id.in.(${serverIds.join(',')}),creator_id.eq.${effectiveUserId}`);
+      } else {
+        query = query.eq('creator_id', effectiveUserId);
+      }
+
+      const { data: dbServers, error } = await query;
+      if (!error && dbServers && dbServers.length > 0) {
+        const mapped: Server[] = dbServers.map((s) => ({
+          id: s.id,
+          name: s.name,
+          icon: s.icon || '🔥',
+          channels: (s.channels || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+          })),
+          members: [effectiveUserId],
+        }));
+        return mapped;
+      }
+    } catch (e) {
+      console.warn('Supabase getServersByUserId failed, using memory fallback:', e);
+    }
+
+    return this.memoryServers.filter(
+      (s) => !s.members || s.members.includes(effectiveUserId) || s.members.includes('user'),
+    );
+  }
+
+  async getServerById(id: string): Promise<Server> {
+    try {
+      const { data: s, error } = await this.supabase.admin
+        .from('servers')
+        .select('*, channels(*)')
+        .eq('id', id)
+        .single();
+
+      if (!error && s) {
+        const { data: members } = await this.supabase.admin
+          .from('server_members')
+          .select('user_id')
+          .eq('server_id', id);
+
+        return {
+          id: s.id,
+          name: s.name,
+          icon: s.icon || '🔥',
+          channels: (s.channels || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+          })),
+          members: (members || []).map((m) => m.user_id),
+        };
       }
     } catch {
-      this.servers = DEFAULT_SERVERS;
+      // ignore
     }
-  }
 
-  private saveServers() {
-    try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.servers, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('Failed to save servers:', e);
-    }
-  }
-
-  getAllServers(): Server[] {
-    return this.servers;
-  }
-
-  getServersByUserId(userId: string): Server[] {
-    const effectiveUserId = userId || 'user';
-    return this.servers.filter((s) => !s.members || s.members.includes(effectiveUserId));
-  }
-
-  getServerById(id: string): Server {
-    const server = this.servers.find((s) => s.id === id);
-    if (!server) {
+    const memoryServer = this.memoryServers.find((s) => s.id === id);
+    if (!memoryServer) {
       throw new NotFoundException(`Server with ID ${id} not found`);
     }
-    return server;
+    return memoryServer;
   }
 
-  createServer(dto: CreateServerDto): Server {
+  async createServer(dto: CreateServerDto): Promise<Server> {
     const newServerId = 'server-' + Date.now();
     const defaultTextChannelId = 'c-' + Date.now() + '-1';
     const defaultVoiceChannelId = 'c-' + Date.now() + '-2';
+    const creatorId = dto.creatorId && dto.creatorId !== 'user' ? dto.creatorId : null;
 
     const newServer: Server = {
       id: newServerId,
@@ -107,57 +173,99 @@ export class ServersService implements OnModuleInit {
       members: [dto.creatorId || 'user'],
     };
 
-    this.servers.push(newServer);
-    this.saveServers();
+    // 1. Insert into Supabase DB
+    try {
+      await this.supabase.admin.from('servers').insert({
+        id: newServerId,
+        name: newServer.name,
+        icon: newServer.icon,
+        creator_id: creatorId,
+      });
+
+      await this.supabase.admin.from('channels').insert([
+        { id: defaultTextChannelId, server_id: newServerId, name: 'thảo-luận-chung', type: 'text' },
+        { id: defaultVoiceChannelId, server_id: newServerId, name: 'Phòng Chờ 🎙️', type: 'voice' },
+      ]);
+
+      if (creatorId) {
+        await this.supabase.admin.from('server_members').insert({
+          server_id: newServerId,
+          user_id: creatorId,
+          role: 'owner',
+        });
+      }
+    } catch (e) {
+      console.warn('Supabase createServer insert failed:', e);
+    }
+
+    this.memoryServers.push(newServer);
 
     // Broadcast server created
     try {
       this.eventsGateway.broadcastServerUpdate({ type: 'SERVER_CREATED', server: newServer });
-    } catch (e) { /* ignore */ }
+    } catch {
+      // ignore
+    }
 
     return newServer;
   }
 
-  addChannel(serverId: string, dto: CreateChannelDto): Channel {
-    const server = this.getServerById(serverId);
+  async addChannel(serverId: string, dto: CreateChannelDto): Promise<Channel> {
+    const newChannelId = 'c-' + Date.now();
     const newChannel: Channel = {
-      id: 'c-' + Date.now(),
+      id: newChannelId,
       name: dto.name.toLowerCase().replace(/\s+/g, '-'),
       type: dto.type,
     };
 
-    server.channels.push(newChannel);
-    this.saveServers();
+    try {
+      await this.supabase.admin.from('channels').insert({
+        id: newChannelId,
+        server_id: serverId,
+        name: newChannel.name,
+        type: newChannel.type,
+      });
+    } catch (e) {
+      console.warn('Supabase addChannel insert failed:', e);
+    }
 
-    // Broadcast channel added
+    const server = this.memoryServers.find((s) => s.id === serverId);
+    if (server) {
+      server.channels.push(newChannel);
+    }
+
     try {
       this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_ADDED', serverId, channel: newChannel });
-    } catch (e) { /* ignore */ }
+    } catch {
+      // ignore
+    }
 
     return newChannel;
   }
 
-  deleteChannel(serverId: string, channelId: string): { success: boolean; channelId: string } {
-    const server = this.getServerById(serverId);
-    const channelIndex = server.channels.findIndex((c) => c.id === channelId);
-    if (channelIndex === -1) {
-      throw new NotFoundException(`Channel with ID ${channelId} not found in server ${serverId}`);
+  async deleteChannel(serverId: string, channelId: string): Promise<{ success: boolean; channelId: string }> {
+    try {
+      await this.supabase.admin.from('channels').delete().eq('id', channelId);
+    } catch (e) {
+      console.warn('Supabase deleteChannel failed:', e);
     }
 
-    server.channels.splice(channelIndex, 1);
-    this.saveServers();
+    const server = this.memoryServers.find((s) => s.id === serverId);
+    if (server) {
+      server.channels = server.channels.filter((c) => c.id !== channelId);
+    }
 
-    // Broadcast channel deleted
     try {
       this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_DELETED', serverId, channelId });
-    } catch (e) { /* ignore */ }
+    } catch {
+      // ignore
+    }
 
     return { success: true, channelId };
   }
 
   generateInviteCode(serverId: string): { code: string; serverId: string; serverName: string } {
-    const server = this.getServerById(serverId);
-    // Simple invite code: base64(serverId + timestamp)
+    const server = this.memoryServers.find((s) => s.id === serverId) || { name: 'Máy chủ Fizzle' };
     const code = Buffer.from(`${serverId}:${Date.now()}`).toString('base64url');
     return {
       code,
@@ -166,7 +274,7 @@ export class ServersService implements OnModuleInit {
     };
   }
 
-  joinServerByCode(code: string, userId: string): Server {
+  async joinServerByCode(code: string, userId: string): Promise<Server> {
     try {
       const decoded = Buffer.from(code, 'base64url').toString('utf-8');
       const serverId = decoded.split(':')[0];
@@ -176,16 +284,38 @@ export class ServersService implements OnModuleInit {
     }
   }
 
-  inviteFriendToServer(serverId: string, friendId: string, inviterId: string): { success: boolean } {
-    const server = this.getServerById(serverId);
+  async inviteFriendToServer(serverId: string, friendId: string, inviterId: string): Promise<{ success: boolean }> {
+    let server: Server;
+    try {
+      server = await this.getServerById(serverId);
+    } catch {
+      server = this.memoryServers.find((s) => s.id === serverId) || {
+        id: serverId,
+        name: 'Máy chủ Fizzle',
+        icon: '🔥',
+        channels: [],
+        members: [],
+      };
+    }
 
+    // 1. Insert member into Supabase DB
+    try {
+      await this.supabase.admin.from('server_members').upsert({
+        server_id: serverId,
+        user_id: friendId,
+        role: 'member',
+      });
+    } catch (e) {
+      console.warn('Supabase inviteFriendToServer member insert failed:', e);
+    }
+
+    // 2. Update memory server
     if (!server.members) server.members = [];
     if (!server.members.includes(friendId)) {
       server.members.push(friendId);
-      this.saveServers();
     }
 
-    // Broadcast invite to friend's user room
+    // 3. Broadcast invite to friend's user room
     try {
       this.eventsGateway.sendServerInviteNotification(friendId, {
         type: 'SERVER_INVITE',
@@ -193,22 +323,36 @@ export class ServersService implements OnModuleInit {
         inviterId,
       });
       this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId: friendId, server });
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      console.warn('Socket broadcast server invite failed:', e);
+    }
 
     return { success: true };
   }
 
-  private addMemberToServer(serverId: string, userId: string): Server {
-    const server = this.getServerById(serverId);
+  private async addMemberToServer(serverId: string, userId: string): Promise<Server> {
+    const server = await this.getServerById(serverId);
+
+    try {
+      await this.supabase.admin.from('server_members').upsert({
+        server_id: serverId,
+        user_id: userId,
+        role: 'member',
+      });
+    } catch (e) {
+      console.warn('Supabase addMemberToServer failed:', e);
+    }
+
     if (!server.members) server.members = [];
     if (!server.members.includes(userId)) {
       server.members.push(userId);
-      this.saveServers();
-
       try {
         this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId, server });
-      } catch (e) { /* ignore */ }
+      } catch {
+        // ignore
+      }
     }
     return server;
   }
 }
+
