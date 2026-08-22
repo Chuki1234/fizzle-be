@@ -41,6 +41,13 @@
       "userBId": "user",
       "status": "pending",
       "createdAt": "2026-08-22T04:29:09.889Z"
+    },
+    {
+      "id": "rel-1787374462333",
+      "userAId": "9774da0a-aa4d-4a97-9dac-fbf8c61670ff",
+      "userBId": "9abc5633-db6b-4579-bf6b-0331976e29cf",
+      "status": "friend",
+      "createdAt": "2026-08-22T04:54:22.333Z"
     }
   ],
   "customUsers": [

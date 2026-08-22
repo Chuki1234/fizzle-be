@@ -19,6 +19,9 @@
         "name": "Phòng Chờ 🎙️",
         "type": "voice"
       }
+    ],
+    "members": [
+      "user"
     ]
   },
   {
@@ -46,6 +49,9 @@
         "name": "ứdsadasdsa",
         "type": "text"
       }
+    ],
+    "members": [
+      "user"
     ]
   },
   {
@@ -63,6 +69,50 @@
         "name": "Phòng Chờ 🎙️",
         "type": "voice"
       }
+    ],
+    "members": [
+      "user"
+    ]
+  },
+  {
+    "id": "server-1787374536940",
+    "name": "sfsfssfs",
+    "icon": "🔥",
+    "channels": [
+      {
+        "id": "c-1787374536940-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787374536940-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ],
+    "members": [
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff",
+      "9abc5633-db6b-4579-bf6b-0331976e29cf"
+    ]
+  },
+  {
+    "id": "server-1787374546628",
+    "name": "sdsd",
+    "icon": "s",
+    "channels": [
+      {
+        "id": "c-1787374546628-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787374546628-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ],
+    "members": [
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff"
     ]
   }
 ]
