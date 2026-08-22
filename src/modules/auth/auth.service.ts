@@ -2,16 +2,19 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Session, User } from '@supabase/supabase-js';
 import * as nodemailer from 'nodemailer';
 import type { Env } from '../../config/env.validation';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
+import { EventsGateway } from '../events/events.gateway';
 import {
   ChangePasswordDto,
   ChangeUsernameDto,
@@ -67,6 +70,8 @@ export class AuthService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly config: ConfigService<Env, true>,
+    @Inject(forwardRef(() => EventsGateway))
+    private readonly eventsGateway?: EventsGateway,
   ) {}
 
 
@@ -461,7 +466,11 @@ export class AuthService {
       });
     }
 
-    return toUserDto(updatedProfile, currentEmail, emailVerified);
+    const userDto = toUserDto(updatedProfile, currentEmail, emailVerified);
+    if (this.eventsGateway) {
+      this.eventsGateway.broadcastUserStatusUpdate(userId, userDto);
+    }
+    return userDto;
   }
 
   async changePassword(
