@@ -13,7 +13,9 @@ import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: (origin: any, callback: any) => {
+      callback(null, true);
+    },
     credentials: true,
   },
 })
@@ -74,6 +76,7 @@ export class EventsGateway
   ) {
     if (data?.roomId) {
       void client.join(data.roomId);
+      void client.join(`channel:${data.roomId}`);
       this.logger.log(`Socket ${client.id} joined room: ${data.roomId}`);
     }
   }
