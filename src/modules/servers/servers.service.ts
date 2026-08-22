@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server.dto';
+import { EventsGateway } from '../events/events.gateway';
 
 const DEFAULT_SERVERS: Server[] = [
   {
@@ -13,6 +14,7 @@ const DEFAULT_SERVERS: Server[] = [
       { id: 'c-java', name: 'đồ-án-java', type: 'text' },
       { id: 'c-lounge', name: 'Phòng Chờ 🎙️', type: 'voice' },
     ],
+    members: ['user'],
   },
   {
     id: 'gaming-hub',
@@ -22,6 +24,7 @@ const DEFAULT_SERVERS: Server[] = [
       { id: 'c-lol', name: 'league-of-legends', type: 'text' },
       { id: 'c-voice-1', name: 'Team 1 🔊', type: 'voice' },
     ],
+    members: ['user'],
   },
 ];
 
@@ -29,6 +32,11 @@ const DEFAULT_SERVERS: Server[] = [
 export class ServersService implements OnModuleInit {
   private readonly storagePath = path.resolve(process.cwd(), 'data', 'servers.json');
   private servers: Server[] = [];
+
+  constructor(
+    @Inject(forwardRef(() => EventsGateway))
+    private readonly eventsGateway: EventsGateway,
+  ) {}
 
   onModuleInit() {
     this.ensureStorage();
@@ -49,6 +57,10 @@ export class ServersService implements OnModuleInit {
     try {
       const data = fs.readFileSync(this.storagePath, 'utf-8');
       this.servers = JSON.parse(data);
+      // Migrate old servers without members field
+      for (const s of this.servers) {
+        if (!s.members) s.members = ['user'];
+      }
     } catch {
       this.servers = DEFAULT_SERVERS;
     }
@@ -64,6 +76,11 @@ export class ServersService implements OnModuleInit {
 
   getAllServers(): Server[] {
     return this.servers;
+  }
+
+  getServersByUserId(userId: string): Server[] {
+    const effectiveUserId = userId || 'user';
+    return this.servers.filter((s) => !s.members || s.members.includes(effectiveUserId));
   }
 
   getServerById(id: string): Server {
@@ -87,10 +104,17 @@ export class ServersService implements OnModuleInit {
         { id: defaultTextChannelId, name: 'thảo-luận-chung', type: 'text' },
         { id: defaultVoiceChannelId, name: 'Phòng Chờ 🎙️', type: 'voice' },
       ],
+      members: [dto.creatorId || 'user'],
     };
 
     this.servers.push(newServer);
     this.saveServers();
+
+    // Broadcast server created
+    try {
+      this.eventsGateway.broadcastServerUpdate({ type: 'SERVER_CREATED', server: newServer });
+    } catch (e) { /* ignore */ }
+
     return newServer;
   }
 
@@ -104,6 +128,12 @@ export class ServersService implements OnModuleInit {
 
     server.channels.push(newChannel);
     this.saveServers();
+
+    // Broadcast channel added
+    try {
+      this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_ADDED', serverId, channel: newChannel });
+    } catch (e) { /* ignore */ }
+
     return newChannel;
   }
 
@@ -116,6 +146,69 @@ export class ServersService implements OnModuleInit {
 
     server.channels.splice(channelIndex, 1);
     this.saveServers();
+
+    // Broadcast channel deleted
+    try {
+      this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_DELETED', serverId, channelId });
+    } catch (e) { /* ignore */ }
+
     return { success: true, channelId };
+  }
+
+  generateInviteCode(serverId: string): { code: string; serverId: string; serverName: string } {
+    const server = this.getServerById(serverId);
+    // Simple invite code: base64(serverId + timestamp)
+    const code = Buffer.from(`${serverId}:${Date.now()}`).toString('base64url');
+    return {
+      code,
+      serverId,
+      serverName: server.name,
+    };
+  }
+
+  joinServerByCode(code: string, userId: string): Server {
+    try {
+      const decoded = Buffer.from(code, 'base64url').toString('utf-8');
+      const serverId = decoded.split(':')[0];
+      return this.addMemberToServer(serverId, userId || 'user');
+    } catch {
+      throw new NotFoundException('Mã mời không hợp lệ hoặc đã hết hạn');
+    }
+  }
+
+  inviteFriendToServer(serverId: string, friendId: string, inviterId: string): { success: boolean } {
+    const server = this.getServerById(serverId);
+
+    if (!server.members) server.members = [];
+    if (!server.members.includes(friendId)) {
+      server.members.push(friendId);
+      this.saveServers();
+    }
+
+    // Broadcast invite to friend's user room
+    try {
+      this.eventsGateway.sendServerInviteNotification(friendId, {
+        type: 'SERVER_INVITE',
+        server: server,
+        inviterId,
+      });
+      this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId: friendId, server });
+    } catch (e) { /* ignore */ }
+
+    return { success: true };
+  }
+
+  private addMemberToServer(serverId: string, userId: string): Server {
+    const server = this.getServerById(serverId);
+    if (!server.members) server.members = [];
+    if (!server.members.includes(userId)) {
+      server.members.push(userId);
+      this.saveServers();
+
+      try {
+        this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId, server });
+      } catch (e) { /* ignore */ }
+    }
+    return server;
   }
 }

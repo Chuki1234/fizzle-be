@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { ChatMessage, CreateMessageDto } from './dto/message.dto';
 
@@ -20,8 +20,11 @@ export class MessagesController {
   }
 
   @Get('direct/:friendId')
-  getDirectMessages(@Param('friendId') friendId: string): ChatMessage[] {
-    return this.messagesService.getDirectMessages(friendId);
+  getDirectMessages(
+    @Param('friendId') friendId: string,
+    @Query('userId') userId?: string,
+  ): ChatMessage[] {
+    return this.messagesService.getDirectMessages(friendId, userId);
   }
 
   @Post('direct/:friendId')

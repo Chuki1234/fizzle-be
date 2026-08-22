@@ -1,6 +1,7 @@
 export class CreateServerDto {
   name!: string;
   icon?: string;
+  creatorId?: string;
 }
 
 export class CreateChannelDto {
@@ -20,4 +21,5 @@ export class Server {
   name!: string;
   icon!: string;
   channels!: Channel[];
+  members?: string[];
 }

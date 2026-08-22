@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChatMessage, CreateMessageDto } from './dto/message.dto';
+import { EventsGateway } from '../events/events.gateway';
 
 const DEFAULT_CHANNEL_MESSAGES: Record<string, ChatMessage[]> = {
   'c-general': [
@@ -57,6 +58,11 @@ export class MessagesService implements OnModuleInit {
     channelMessages: DEFAULT_CHANNEL_MESSAGES,
     directMessages: DEFAULT_DIRECT_MESSAGES,
   };
+
+  constructor(
+    @Inject(forwardRef(() => EventsGateway))
+    private readonly eventsGateway: EventsGateway,
+  ) {}
 
   onModuleInit() {
     this.ensureStorage();
@@ -114,28 +120,61 @@ export class MessagesService implements OnModuleInit {
 
     this.data.channelMessages[channelId].push(message);
     this.saveMessages();
+
+    // Broadcast in real-time
+    try {
+      this.eventsGateway.broadcastChannelMessage(channelId, message);
+    } catch (e) {
+      console.warn('Could not broadcast channel message via socket:', e);
+    }
+
     return message;
   }
 
-  getDirectMessages(friendId: string): ChatMessage[] {
+  getDirectMessages(friendId: string, currentUserId?: string): ChatMessage[] {
+    if (currentUserId && friendId) {
+      const pairKey = [currentUserId, friendId].sort().join('--');
+      if (this.data.directMessages[pairKey] && this.data.directMessages[pairKey].length > 0) {
+        return this.data.directMessages[pairKey];
+      }
+    }
     return this.data.directMessages[friendId] || [];
   }
 
   addDirectMessage(friendId: string, dto: CreateMessageDto): ChatMessage {
+    const senderId = dto.senderId || 'user';
     const message: ChatMessage = {
       id: Date.now().toString(),
-      senderId: dto.senderId || 'user',
+      senderId: senderId,
       senderName: dto.senderName || 'Thiện Phúc',
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    const pairKey = [senderId, friendId].sort().join('--');
+
+    if (!this.data.directMessages[pairKey]) {
+      this.data.directMessages[pairKey] = [];
+    }
+    this.data.directMessages[pairKey].push(message);
+
+    // Also sync to single-key for fallback
     if (!this.data.directMessages[friendId]) {
       this.data.directMessages[friendId] = [];
     }
+    if (!this.data.directMessages[friendId].some((m) => m.id === message.id)) {
+      this.data.directMessages[friendId].push(message);
+    }
 
-    this.data.directMessages[friendId].push(message);
     this.saveMessages();
+
+    // Broadcast in real-time to both users
+    try {
+      this.eventsGateway.sendDirectMessage(senderId, friendId, message);
+    } catch (e) {
+      console.warn('Could not broadcast direct message via socket:', e);
+    }
+
     return message;
   }
 }
