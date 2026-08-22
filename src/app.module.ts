@@ -9,6 +9,8 @@ import { SupabaseModule } from './infra/supabase/supabase.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ServersModule } from './modules/servers/servers.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { EventsModule } from './modules/events/events.module';
+import { FriendsModule } from './modules/friends/friends.module';
 
 @Module({
   imports: [
@@ -16,9 +18,11 @@ import { MessagesModule } from './modules/messages/messages.module';
     SupabaseModule,
     // Baseline limit for every route; auth endpoints tighten it with @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    EventsModule,
     AuthModule,
     ServersModule,
     MessagesModule,
+    FriendsModule,
   ],
   controllers: [AppController],
   providers: [
