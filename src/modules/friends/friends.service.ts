@@ -1,88 +1,55 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
 import { EventsGateway } from '../events/events.gateway';
 import { FriendRelationship, FriendUser, SendFriendRequestDto } from './dto/friend.dto';
 
-const DEFAULT_MOCK_USERS: FriendUser[] = [
-  {
-    id: 'kevin',
-    username: 'kevin_se',
-    displayName: 'Kevin',
-    avatarUrl: null,
-    presence: 'online',
-    statusText: 'Đang chơi League of Legends 🎮',
-    relationshipStatus: 'friend',
-  },
-  {
-    id: 'hoang',
-    username: 'nam_dev',
-    displayName: 'Hoàng Nam',
-    avatarUrl: null,
-    presence: 'dnd',
-    statusText: 'Đang làm Đồ Án Cuối Kỳ Java 💻',
-    relationshipStatus: 'friend',
-  },
-  {
-    id: 'minh',
-    username: 'tri_mcfc',
-    displayName: 'Minh Trí',
-    avatarUrl: null,
-    presence: 'online',
-    statusText: 'Đang xem Highlights Manchester City ⚽',
-    relationshipStatus: 'friend',
-  },
-  {
-    id: 'bao',
-    username: 'bao_game',
-    displayName: 'Gia Bảo',
-    avatarUrl: null,
-    presence: 'idle',
-    statusText: 'Chờ xíu đi pha cà phê ☕',
-    relationshipStatus: 'friend',
-  },
-  {
-    id: 'anh',
-    username: 'anh_tuan',
-    displayName: 'Tuấn Anh',
-    avatarUrl: null,
-    presence: 'offline',
-    statusText: 'Ngoại tuyến',
-    relationshipStatus: 'friend',
-  },
-  {
-    id: 'khang',
-    username: 'khang_hsu',
-    displayName: 'Quốc Khang',
-    avatarUrl: null,
-    presence: 'online',
-    statusText: 'Muốn kết bạn với bạn',
-    relationshipStatus: 'pending',
-  },
-];
+function parseProfileStatus(profile: { status_message?: string | null; username?: string }) {
+  let parsedMeta: Record<string, any> = {};
+  let displayStatusMessage: string | null = null;
+  let isJsonMeta = false;
 
-interface FriendsStorageData {
-  relationships: FriendRelationship[];
-  customUsers: FriendUser[];
+  if (profile.status_message && profile.status_message.startsWith('{')) {
+    try {
+      parsedMeta = JSON.parse(profile.status_message);
+      isJsonMeta = true;
+      if ('statusMessage' in parsedMeta && typeof parsedMeta.statusMessage === 'string') {
+        displayStatusMessage = parsedMeta.statusMessage;
+      }
+    } catch {
+      displayStatusMessage = profile.status_message;
+    }
+  } else {
+    displayStatusMessage = profile.status_message ?? null;
+  }
+
+  const rawCustom = parsedMeta.customStatus;
+  const customStatusValue =
+    typeof rawCustom === 'string' && !rawCustom.startsWith('{')
+      ? rawCustom
+      : (!isJsonMeta ? displayStatusMessage : null);
+
+  return {
+    statusText: displayStatusMessage || (profile.username ? `@${profile.username}` : ''),
+    customStatus: customStatusValue,
+    customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
+  };
 }
 
 @Injectable()
 export class FriendsService {
-  private memoryRelationships: FriendRelationship[] = [];
-
   constructor(
     private readonly supabase: SupabaseService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
-  ) { }
+  ) {}
 
   async searchUsers(query: string, currentUserId?: string): Promise<FriendUser[]> {
     const cleanQuery = (query || '').trim().toLowerCase();
     if (!cleanQuery) return [];
 
     const results: FriendUser[] = [];
-    const seenIds = new Set<string>();
 
-    // 1. Search in Supabase profiles
     try {
       const { data: profiles, error } = await this.supabase.admin
         .from('profiles')
@@ -93,14 +60,14 @@ export class FriendsService {
       if (!error && profiles) {
         for (const p of profiles) {
           if (currentUserId && p.id === currentUserId) continue;
-          seenIds.add(p.id);
-          const rel = this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const rel = await this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const parsed = parseProfileStatus(p);
           results.push({
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
-            presence: p.presence || 'online',
+            presence: p.presence || 'offline',
             statusText: parsed.statusText,
             customStatus: parsed.customStatus,
             customStatusEmoji: parsed.customStatusEmoji,
@@ -118,121 +85,106 @@ export class FriendsService {
   async getUserFriends(userId: string): Promise<FriendUser[]> {
     const effectiveUserId = userId || 'user';
     const friendsList: FriendUser[] = [];
-    const userMap = new Map<string, FriendUser>();
 
-    // 1. Fetch all Supabase profiles
     try {
-      const { data: profiles } = await this.supabase.admin
-        .from('profiles')
-        .select('*')
-        .limit(200);
-
-      if (profiles) {
-        for (const p of profiles) {
-          const parsed = parseProfileStatus(p);
-          userMap.set(p.id, {
-            id: p.id,
-            username: p.username,
-            displayName: p.display_name || p.username,
-            avatarUrl: p.avatar_url,
-            presence: p.presence || 'online',
-            statusText: parsed.statusText,
-            customStatus: parsed.customStatus,
-            customStatusEmoji: parsed.customStatusEmoji,
-            relationshipStatus: 'none',
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('Could not fetch Supabase profiles:', e);
-    }
-
-    // 2. Fetch relationships from Supabase DB
-    let relationships: FriendRelationship[] = [];
-    try {
-      const { data: dbRels, error } = await this.supabase.admin
+      // 1. Fetch relationships from Supabase DB
+      const { data: dbRels, error: relError } = await this.supabase.admin
         .from('friendships')
         .select('*')
         .or(`user_a_id.eq.${effectiveUserId},user_b_id.eq.${effectiveUserId}`);
 
-      if (!error && dbRels) {
-        relationships = dbRels.map((r) => ({
-          id: r.id,
-          userAId: r.user_a_id,
-          userBId: r.user_b_id,
-          status: r.status,
-          createdAt: r.created_at,
-        }));
+      if (relError || !dbRels || dbRels.length === 0) {
+        return [];
+      }
+
+      // Collect unique partner IDs to fetch profiles
+      const partnerIds = new Set<string>();
+      for (const rel of dbRels) {
+        if (rel.user_a_id === effectiveUserId && rel.user_b_id !== effectiveUserId) {
+          partnerIds.add(rel.user_b_id);
+        } else if (rel.user_b_id === effectiveUserId && rel.user_a_id !== effectiveUserId) {
+          partnerIds.add(rel.user_a_id);
+        }
+      }
+
+      if (partnerIds.size === 0) {
+        return [];
+      }
+
+      // 2. Fetch profiles for partners
+      const { data: profiles, error: profError } = await this.supabase.admin
+        .from('profiles')
+        .select('*')
+        .in('id', Array.from(partnerIds));
+
+      const profileMap = new Map<string, any>();
+      if (!profError && profiles) {
+        for (const p of profiles) {
+          profileMap.set(p.id, p);
+        }
+      }
+
+      // 3. Map relationships to FriendUser models
+      for (const rel of dbRels) {
+        if (rel.user_a_id === rel.user_b_id) continue;
+
+        if (rel.status === 'friend') {
+          const friendId = rel.user_a_id === effectiveUserId ? rel.user_b_id : rel.user_a_id;
+          const p = profileMap.get(friendId);
+          const parsed = p ? parseProfileStatus(p) : { statusText: '', customStatus: null, customStatusEmoji: null };
+
+          friendsList.push({
+            id: friendId,
+            username: p?.username || friendId,
+            displayName: p?.display_name || p?.username || friendId,
+            avatarUrl: p?.avatar_url || null,
+            presence: p?.presence || 'offline',
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
+            relationshipStatus: 'friend',
+          });
+        } else if (rel.status === 'pending') {
+          // Incoming request: user_a_id sent to effectiveUserId
+          if (rel.user_b_id === effectiveUserId && rel.user_a_id !== effectiveUserId) {
+            const senderId = rel.user_a_id;
+            const p = profileMap.get(senderId);
+            const parsed = p ? parseProfileStatus(p) : { statusText: 'Muốn kết bạn với bạn', customStatus: null, customStatusEmoji: null };
+
+            friendsList.push({
+              id: senderId,
+              username: p?.username || senderId,
+              displayName: p?.display_name || p?.username || senderId,
+              avatarUrl: p?.avatar_url || null,
+              presence: p?.presence || 'offline',
+              statusText: parsed.statusText || 'Muốn kết bạn với bạn',
+              customStatus: parsed.customStatus,
+              customStatusEmoji: parsed.customStatusEmoji,
+              relationshipStatus: 'pending',
+            });
+          }
+          // Outgoing request: effectiveUserId sent to user_b_id
+          else if (rel.user_a_id === effectiveUserId && rel.user_b_id !== effectiveUserId) {
+            const targetId = rel.user_b_id;
+            const p = profileMap.get(targetId);
+            const parsed = p ? parseProfileStatus(p) : { statusText: 'Đã gửi lời mời', customStatus: null, customStatusEmoji: null };
+
+            friendsList.push({
+              id: targetId,
+              username: p?.username || targetId,
+              displayName: p?.display_name || p?.username || targetId,
+              avatarUrl: p?.avatar_url || null,
+              presence: p?.presence || 'offline',
+              statusText: parsed.statusText || 'Đã gửi lời mời',
+              customStatus: parsed.customStatus,
+              customStatusEmoji: parsed.customStatusEmoji,
+              relationshipStatus: 'pending_outgoing',
+            });
+          }
+        }
       }
     } catch (e) {
-      console.warn('Could not fetch friendships from Supabase, using memory fallback:', e);
-    }
-
-    // If no relationships in DB, fallback to memory
-    if (relationships.length === 0) {
-      relationships = this.memoryRelationships.filter(
-        (r) => r.userAId === effectiveUserId || r.userBId === effectiveUserId,
-      );
-    }
-
-    for (const rel of relationships) {
-      // Avoid self-friends
-      if (rel.userAId === rel.userBId) continue;
-
-      if (rel.status === 'friend') {
-        let friendId: string | null = null;
-        if (rel.userAId === effectiveUserId) friendId = rel.userBId;
-        else if (rel.userBId === effectiveUserId) friendId = rel.userAId;
-
-        if (friendId && friendId !== effectiveUserId) {
-          const userObj = userMap.get(friendId) || {
-            id: friendId,
-            username: friendId,
-            displayName: friendId,
-            avatarUrl: null,
-            presence: 'online',
-            statusText: '',
-            relationshipStatus: 'friend',
-          };
-          friendsList.push({
-            ...userObj,
-            relationshipStatus: 'friend',
-          });
-        }
-      } else if (rel.status === 'pending') {
-        // Incoming request: userA sent to effectiveUserId
-        if (rel.userBId === effectiveUserId && rel.userAId !== effectiveUserId) {
-          const userObj = userMap.get(rel.userAId) || {
-            id: rel.userAId,
-            username: rel.userAId,
-            displayName: rel.userAId,
-            avatarUrl: null,
-            presence: 'online',
-            statusText: 'Muốn kết bạn với bạn',
-            relationshipStatus: 'pending',
-          };
-          friendsList.push({
-            ...userObj,
-            relationshipStatus: 'pending',
-          });
-        }
-        // Outgoing request: effectiveUserId sent to userB
-        else if (rel.userAId === effectiveUserId && rel.userBId !== effectiveUserId) {
-          const userObj = userMap.get(rel.userBId) || {
-            id: rel.userBId,
-            username: rel.userBId,
-            displayName: rel.userBId,
-            avatarUrl: null,
-            presence: 'online',
-            statusText: 'Đã gửi lời mời',
-            relationshipStatus: 'pending_outgoing',
-          };
-          friendsList.push({
-            ...userObj,
-            relationshipStatus: 'pending_outgoing',
-          });
-        }
-      }
+      console.warn('Could not fetch friends from Supabase:', e);
     }
 
     return friendsList;
@@ -265,7 +217,7 @@ export class FriendsService {
       throw new BadRequestException('Bạn không thể gửi lời mời kết bạn cho chính mình');
     }
 
-    // Check existing in DB
+    // Check existing relationship in DB
     try {
       const { data: existingRels } = await this.supabase.admin
         .from('friendships')
@@ -282,7 +234,7 @@ export class FriendsService {
         if (existing.user_a_id === effectiveSenderId) {
           throw new BadRequestException('Bạn đã gửi lời mời kết bạn cho người này rồi!');
         }
-        // Auto-accept
+        // Auto-accept if incoming request exists
         await this.supabase.admin.from('friendships').update({ status: 'friend' }).eq('id', existing.id);
         const acceptedRel: FriendRelationship = {
           id: existing.id,
@@ -298,32 +250,31 @@ export class FriendsService {
       if (e instanceof BadRequestException) throw e;
     }
 
-    const newRelId = 'rel-' + Date.now();
+    const newRelId = randomUUID();
+    const createdAt = new Date().toISOString();
     const newRel: FriendRelationship = {
       id: newRelId,
       userAId: effectiveSenderId,
       userBId: targetUserId,
       status: 'pending',
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
 
-    // 1. Insert into Supabase DB
-    try {
-      await this.supabase.admin.from('friendships').insert({
-        id: newRelId,
-        user_a_id: effectiveSenderId,
-        user_b_id: targetUserId,
-        status: 'pending',
-        created_at: newRel.createdAt,
-      });
-    } catch (e) {
-      console.warn('Supabase insert friendship failed:', e);
+    // Insert into Supabase DB
+    const { error: insertError } = await this.supabase.admin.from('friendships').insert({
+      id: newRelId,
+      user_a_id: effectiveSenderId,
+      user_b_id: targetUserId,
+      status: 'pending',
+      created_at: createdAt,
+    });
+
+    if (insertError) {
+      console.warn('Supabase insert friendship failed:', insertError);
+      throw new BadRequestException('Không thể gửi lời mời kết bạn');
     }
 
-    // 2. Memory cache update
-    this.memoryRelationships.push(newRel);
-
-    // 3. Broadcast realtime event
+    // Broadcast realtime event
     this.eventsGateway.sendFriendRequestNotification(targetUserId, {
       fromUserId: effectiveSenderId,
       relationship: newRel,
@@ -335,40 +286,23 @@ export class FriendsService {
   async acceptFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    try {
-      await this.supabase.admin
-        .from('friendships')
-        .update({ status: 'friend' })
-        .or(
-          `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-        );
-    } catch (e) {
-      console.warn('Supabase acceptFriendRequest update failed:', e);
-    }
+    const { error } = await this.supabase.admin
+      .from('friendships')
+      .update({ status: 'friend' })
+      .or(
+        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
+      );
 
-    // Memory cache update
-    const memRel = this.memoryRelationships.find(
-      (r) =>
-        ((r.userAId === friendId && r.userBId === effectiveUserId) ||
-          (r.userAId === effectiveUserId && r.userBId === friendId)) &&
-        r.status === 'pending',
-    );
-    if (memRel) {
-      memRel.status = 'friend';
-    } else {
-      this.memoryRelationships.push({
-        id: 'rel-' + Date.now(),
-        userAId: effectiveUserId,
-        userBId: friendId,
-        status: 'friend',
-        createdAt: new Date().toISOString(),
-      });
+    if (error) {
+      console.warn('Supabase acceptFriendRequest update failed:', error);
+      throw new BadRequestException('Không thể chấp nhận lời mời kết bạn');
     }
 
     // Broadcast event
     this.eventsGateway.sendFriendAcceptedNotification(effectiveUserId, friendId, {
       userAId: effectiveUserId,
       userBId: friendId,
+      status: 'friend',
     });
 
     return { success: true };
@@ -377,25 +311,17 @@ export class FriendsService {
   async rejectFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    try {
-      await this.supabase.admin
-        .from('friendships')
-        .delete()
-        .or(
-          `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-        );
-    } catch (e) {
-      console.warn('Supabase rejectFriendRequest delete failed:', e);
-    }
+    const { error } = await this.supabase.admin
+      .from('friendships')
+      .delete()
+      .or(
+        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
+      );
 
-    this.memoryRelationships = this.memoryRelationships.filter(
-      (r) =>
-        !(
-          ((r.userAId === friendId && r.userBId === effectiveUserId) ||
-            (r.userAId === effectiveUserId && r.userBId === friendId)) &&
-          r.status === 'pending'
-        ),
-    );
+    if (error) {
+      console.warn('Supabase rejectFriendRequest delete failed:', error);
+      throw new BadRequestException('Không thể từ chối lời mời kết bạn');
+    }
 
     return { success: true };
   }
@@ -403,24 +329,17 @@ export class FriendsService {
   async removeFriend(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    try {
-      await this.supabase.admin
-        .from('friendships')
-        .delete()
-        .or(
-          `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-        );
-    } catch (e) {
-      console.warn('Supabase removeFriend delete failed:', e);
-    }
+    const { error } = await this.supabase.admin
+      .from('friendships')
+      .delete()
+      .or(
+        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
+      );
 
-    this.memoryRelationships = this.memoryRelationships.filter(
-      (r) =>
-        !(
-          (r.userAId === friendId && r.userBId === effectiveUserId) ||
-          (r.userAId === effectiveUserId && r.userBId === friendId)
-        ),
-    );
+    if (error) {
+      console.warn('Supabase removeFriend delete failed:', error);
+      throw new BadRequestException('Không thể hủy kết bạn');
+    }
 
     return { success: true };
   }
@@ -429,18 +348,19 @@ export class FriendsService {
     userId: string,
     targetId: string,
   ): Promise<'friend' | 'pending' | 'pending_outgoing' | 'none'> {
-    if (userId === targetId) return 'none';
+    if (!userId || !targetId || userId === targetId) return 'none';
 
     try {
-      const { data } = await this.supabase.admin
+      const { data, error } = await this.supabase.admin
         .from('friendships')
         .select('*')
         .or(
           `and(user_a_id.eq.${userId},user_b_id.eq.${targetId}),and(user_a_id.eq.${targetId},user_b_id.eq.${userId})`,
         );
 
-      const rel = data?.[0];
-      if (!rel) return 'none';
+      if (error || !data || data.length === 0) return 'none';
+
+      const rel = data[0];
       if (rel.status === 'friend') return 'friend';
       if (rel.status === 'pending') {
         return rel.user_a_id === userId ? 'pending_outgoing' : 'pending';
@@ -449,17 +369,6 @@ export class FriendsService {
       // ignore
     }
 
-    const memRel = this.memoryRelationships.find(
-      (r) =>
-        (r.userAId === userId && r.userBId === targetId) ||
-        (r.userAId === targetId && r.userBId === userId),
-    );
-    if (!memRel) return 'none';
-    if (memRel.status === 'friend') return 'friend';
-    if (memRel.status === 'pending') {
-      return memRel.userAId === userId ? 'pending_outgoing' : 'pending';
-    }
     return 'none';
   }
 }
-
