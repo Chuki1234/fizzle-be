@@ -201,17 +201,12 @@ export class FriendsService implements OnModuleInit {
     const friendsList: FriendUser[] = [];
     const userMap = new Map<string, FriendUser>();
 
-    // Collect all mock/custom users
-    for (const u of this.data.customUsers) {
-      userMap.set(u.id, u);
-    }
-
-    // Also fetch relevant Supabase profiles
+    // 1. Fetch relevant Supabase profiles
     try {
       const { data: profiles } = await this.supabase.admin
         .from('profiles')
         .select('*')
-        .limit(100);
+        .limit(200);
 
       if (profiles) {
         for (const p of profiles) {
@@ -233,13 +228,53 @@ export class FriendsService implements OnModuleInit {
       // ignore
     }
 
+    // Collect all mock/custom users
+    for (const u of this.data.customUsers) {
+      if (!userMap.has(u.id)) {
+        userMap.set(u.id, u);
+      }
+    }
+
+    // 2. Fetch friend relationships from Supabase DB tables if present
+    try {
+      // Try fetching from `friendships` table
+      const { data: dbFriendships } = await this.supabase.admin
+        .from('friendships')
+        .select('*')
+        .or(`user_id.eq.${effectiveUserId},friend_id.eq.${effectiveUserId},user_a_id.eq.${effectiveUserId},user_b_id.eq.${effectiveUserId}`);
+
+      if (dbFriendships && dbFriendships.length > 0) {
+        for (const f of dbFriendships) {
+          const uA = f.user_id || f.user_a_id;
+          const uB = f.friend_id || f.user_b_id;
+          const st = f.status || 'pending';
+          const relId = f.id || `rel-${uA}-${uB}`;
+
+          if (!this.data.relationships.some((r) => r.id === relId || (r.userAId === uA && r.userBId === uB))) {
+            this.data.relationships.push({
+              id: relId,
+              userAId: uA,
+              userBId: uB,
+              status: st === 'accepted' ? 'friend' : (st as any),
+              createdAt: f.created_at || new Date().toISOString(),
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore table query failure
+    }
+
+    const seenFriendIds = new Set<string>();
+
     for (const rel of this.data.relationships) {
       if (rel.status === 'friend') {
         let friendId: string | null = null;
         if (rel.userAId === effectiveUserId) friendId = rel.userBId;
         else if (rel.userBId === effectiveUserId) friendId = rel.userAId;
 
-        if (friendId) {
+        if (friendId && !seenFriendIds.has(friendId)) {
+          seenFriendIds.add(friendId);
           const userObj = userMap.get(friendId) || {
             id: friendId,
             username: friendId,
@@ -256,7 +291,8 @@ export class FriendsService implements OnModuleInit {
         }
       } else if (rel.status === 'pending') {
         // Incoming request: userA sent to effectiveUserId
-        if (rel.userBId === effectiveUserId) {
+        if (rel.userBId === effectiveUserId && !seenFriendIds.has(rel.userAId)) {
+          seenFriendIds.add(rel.userAId);
           const userObj = userMap.get(rel.userAId) || {
             id: rel.userAId,
             username: rel.userAId,
@@ -272,7 +308,8 @@ export class FriendsService implements OnModuleInit {
           });
         }
         // Outgoing request: effectiveUserId sent to userB
-        else if (rel.userAId === effectiveUserId) {
+        else if (rel.userAId === effectiveUserId && !seenFriendIds.has(rel.userBId)) {
+          seenFriendIds.add(rel.userBId);
           const userObj = userMap.get(rel.userBId) || {
             id: rel.userBId,
             username: rel.userBId,
@@ -305,24 +342,23 @@ export class FriendsService implements OnModuleInit {
     // Find target user by username if targetUserId not provided
     if (!targetUserId && dto.targetUsername) {
       const cleanUsername = dto.targetUsername.trim().toLowerCase();
-      // Check in custom users
-      const customUser = this.data.customUsers.find(
-        (u) => u.username.toLowerCase() === cleanUsername,
-      );
-      if (customUser) {
-        targetUserId = customUser.id;
-      } else {
-        // Check Supabase
-        try {
-          const { data } = await this.supabase.admin
-            .from('profiles')
-            .select('id')
-            .ilike('username', cleanUsername)
-            .single();
-          if (data?.id) targetUserId = data.id;
-        } catch {
-          // not found
-        }
+      // Check in Supabase profiles
+      try {
+        const { data } = await this.supabase.admin
+          .from('profiles')
+          .select('id')
+          .ilike('username', cleanUsername)
+          .single();
+        if (data?.id) targetUserId = data.id;
+      } catch {
+        // not found in supabase profiles
+      }
+
+      if (!targetUserId) {
+        const customUser = this.data.customUsers.find(
+          (u) => u.username.toLowerCase() === cleanUsername,
+        );
+        if (customUser) targetUserId = customUser.id;
       }
     }
 
@@ -350,7 +386,17 @@ export class FriendsService implements OnModuleInit {
       }
       // If the other user already sent a pending request, auto accept it!
       existing.status = 'friend';
-      this.saveData();
+
+      // Persist status change to Supabase
+      void (async () => {
+        try {
+          await this.supabase.admin
+            .from('friendships')
+            .update({ status: 'friend' })
+            .or(`and(user_id.eq.${effectiveSenderId},friend_id.eq.${targetUserId}),and(user_id.eq.${targetUserId},friend_id.eq.${effectiveSenderId})`);
+        } catch { /* ignore */ }
+      })();
+
       this.eventsGateway.sendFriendAcceptedNotification(effectiveSenderId, targetUserId, existing);
       return existing;
     }
@@ -364,11 +410,37 @@ export class FriendsService implements OnModuleInit {
     };
 
     this.data.relationships.push(newRel);
-    this.saveData();
+
+    // Persist to Supabase
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('friendships')
+          .insert({
+            user_id: effectiveSenderId,
+            friend_id: targetUserId,
+            status: 'pending',
+            created_at: newRel.createdAt,
+          });
+      } catch {
+        try {
+          await this.supabase.admin
+            .from('user_relationships')
+            .insert({
+              user_a_id: effectiveSenderId,
+              user_b_id: targetUserId,
+              status: 'pending',
+            });
+        } catch {
+          // ignore
+        }
+      }
+    })();
 
     // Broadcast realtime event
     this.eventsGateway.sendFriendRequestNotification(targetUserId, {
       fromUserId: effectiveSenderId,
+      targetUserId,
       relationship: newRel,
     });
 
@@ -387,7 +459,6 @@ export class FriendsService implements OnModuleInit {
     if (rel) {
       rel.status = 'friend';
     } else {
-      // Create friend relationship if not present
       this.data.relationships.push({
         id: 'rel-' + Date.now(),
         userAId: effectiveUserId,
@@ -397,7 +468,24 @@ export class FriendsService implements OnModuleInit {
       });
     }
 
-    this.saveData();
+    // Persist to Supabase
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('friendships')
+          .update({ status: 'friend' })
+          .or(`and(user_id.eq.${effectiveUserId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${effectiveUserId})`);
+      } catch {
+        try {
+          await this.supabase.admin
+            .from('user_relationships')
+            .update({ status: 'friend' })
+            .or(`and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId}),and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId})`);
+        } catch {
+          // ignore
+        }
+      }
+    })();
 
     // Broadcast event
     this.eventsGateway.sendFriendAcceptedNotification(effectiveUserId, friendId, {
@@ -410,7 +498,6 @@ export class FriendsService implements OnModuleInit {
 
   async rejectFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
-    const initialLen = this.data.relationships.length;
     this.data.relationships = this.data.relationships.filter(
       (r) =>
         !(
@@ -420,9 +507,25 @@ export class FriendsService implements OnModuleInit {
         ),
     );
 
-    if (this.data.relationships.length !== initialLen) {
-      this.saveData();
-    }
+    // Delete from Supabase
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('friendships')
+          .delete()
+          .or(`and(user_id.eq.${effectiveUserId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${effectiveUserId})`);
+      } catch {
+        try {
+          await this.supabase.admin
+            .from('user_relationships')
+            .delete()
+            .or(`and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId}),and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId})`);
+        } catch {
+          // ignore
+        }
+      }
+    })();
+
     return { success: true };
   }
 
@@ -435,7 +538,26 @@ export class FriendsService implements OnModuleInit {
           (r.userAId === effectiveUserId && r.userBId === friendId)
         ),
     );
-    this.saveData();
+
+    // Delete from Supabase
+    void (async () => {
+      try {
+        await this.supabase.admin
+          .from('friendships')
+          .delete()
+          .or(`and(user_id.eq.${effectiveUserId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${effectiveUserId})`);
+      } catch {
+        try {
+          await this.supabase.admin
+            .from('user_relationships')
+            .delete()
+            .or(`and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId}),and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId})`);
+        } catch {
+          // ignore
+        }
+      }
+    })();
+
     return { success: true };
   }
 
