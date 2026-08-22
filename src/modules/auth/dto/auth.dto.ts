@@ -111,6 +111,7 @@ export const updateProfileSchema = z.object({
   customStatusEmoji: z.string().max(16).nullable().optional(),
   aboutMe: z.string().max(500).nullable().optional(),
   bannerColor: z.string().max(128).nullable().optional(),
+  bannerGradient: z.string().max(256).nullable().optional(),
   avatarFrame: z.string().max(64).nullable().optional(),
   presence: z.enum(['online', 'idle', 'dnd', 'offline']).optional(),
   birthdate: z.iso.date({ error: 'Ngày sinh không hợp lệ.' }).nullable().optional(),

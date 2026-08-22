@@ -432,6 +432,10 @@ export class AuthService {
       meta.bannerColor = dto.bannerColor;
       metaChanged = true;
     }
+    if (dto.bannerGradient !== undefined) {
+      meta.bannerGradient = dto.bannerGradient;
+      metaChanged = true;
+    }
     if (dto.avatarFrame !== undefined) {
       meta.avatarFrame = dto.avatarFrame;
       metaChanged = true;

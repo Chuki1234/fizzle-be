@@ -27,6 +27,7 @@ export interface UserDto {
   customStatusEmoji: string | null;
   aboutMe: string | null;
   bannerColor: string | null;
+  bannerGradient: string | null;
   avatarFrame: string | null;
   presence: 'online' | 'idle' | 'dnd' | 'offline';
   birthdate: string | null;
@@ -89,6 +90,7 @@ export function toUserDto(
     customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
     aboutMe: parsedMeta.aboutMe ?? null,
     bannerColor: parsedMeta.bannerColor ?? null,
+    bannerGradient: parsedMeta.bannerGradient ?? null,
     avatarFrame: parsedMeta.avatarFrame ?? null,
     presence: profile.presence,
     birthdate: profile.birthdate,
