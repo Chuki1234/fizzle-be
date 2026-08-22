@@ -19,6 +19,10 @@
         "name": "Phòng Chờ 🎙️",
         "type": "voice"
       }
+    ],
+    "members": [
+      "user",
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff"
     ]
   },
   {
@@ -46,6 +50,9 @@
         "name": "ứdsadasdsa",
         "type": "text"
       }
+    ],
+    "members": [
+      "user"
     ]
   },
   {
@@ -63,6 +70,9 @@
         "name": "Phòng Chờ 🎙️",
         "type": "voice"
       }
+    ],
+    "members": [
+      "user"
     ]
   }
 ]
