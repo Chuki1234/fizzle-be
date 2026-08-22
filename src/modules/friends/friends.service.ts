@@ -222,11 +222,14 @@ export class FriendsService {
       const { data: existingRels } = await this.supabase.admin
         .from('friendships')
         .select('*')
-        .or(
-          `and(user_a_id.eq.${effectiveSenderId},user_b_id.eq.${targetUserId}),and(user_a_id.eq.${targetUserId},user_b_id.eq.${effectiveSenderId})`,
-        );
+        .or(`user_a_id.eq.${effectiveSenderId},user_b_id.eq.${effectiveSenderId}`);
 
-      const existing = existingRels?.[0];
+      const existing = existingRels?.find(
+        (r) =>
+          (r.user_a_id === effectiveSenderId && r.user_b_id === targetUserId) ||
+          (r.user_a_id === targetUserId && r.user_b_id === effectiveSenderId),
+      );
+
       if (existing) {
         if (existing.status === 'friend') {
           throw new BadRequestException('Hai bạn đã là bạn bè rồi!');
@@ -235,7 +238,11 @@ export class FriendsService {
           throw new BadRequestException('Bạn đã gửi lời mời kết bạn cho người này rồi!');
         }
         // Auto-accept if incoming request exists
-        await this.supabase.admin.from('friendships').update({ status: 'friend' }).eq('id', existing.id);
+        await this.supabase.admin
+          .from('friendships')
+          .update({ status: 'friend', updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+
         const acceptedRel: FriendRelationship = {
           id: existing.id,
           userAId: existing.user_a_id,
@@ -274,9 +281,31 @@ export class FriendsService {
       throw new BadRequestException('Không thể gửi lời mời kết bạn');
     }
 
+    // Get sender's profile for real-time notification
+    let senderName = effectiveSenderId;
+    let senderUsername = effectiveSenderId;
+    let senderAvatarUrl: string | null = null;
+    try {
+      const { data: senderProf } = await this.supabase.admin
+        .from('profiles')
+        .select('*')
+        .eq('id', effectiveSenderId)
+        .single();
+      if (senderProf) {
+        senderName = senderProf.display_name || senderProf.username || effectiveSenderId;
+        senderUsername = senderProf.username || effectiveSenderId;
+        senderAvatarUrl = senderProf.avatar_url;
+      }
+    } catch {
+      // ignore
+    }
+
     // Broadcast realtime event
     this.eventsGateway.sendFriendRequestNotification(targetUserId, {
       fromUserId: effectiveSenderId,
+      senderDisplayName: senderName,
+      senderUsername: senderUsername,
+      senderAvatarUrl: senderAvatarUrl,
       relationship: newRel,
     });
 
@@ -286,16 +315,28 @@ export class FriendsService {
   async acceptFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    const { error } = await this.supabase.admin
+    const { data: rows } = await this.supabase.admin
       .from('friendships')
-      .update({ status: 'friend' })
-      .or(
-        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-      );
+      .select('*')
+      .or(`user_a_id.eq.${effectiveUserId},user_b_id.eq.${effectiveUserId}`);
 
-    if (error) {
-      console.warn('Supabase acceptFriendRequest update failed:', error);
-      throw new BadRequestException('Không thể chấp nhận lời mời kết bạn');
+    const targetRel = rows?.find(
+      (r) =>
+        ((r.user_a_id === friendId && r.user_b_id === effectiveUserId) ||
+          (r.user_a_id === effectiveUserId && r.user_b_id === friendId)) &&
+        r.status === 'pending',
+    );
+
+    if (targetRel) {
+      const { error } = await this.supabase.admin
+        .from('friendships')
+        .update({ status: 'friend', updated_at: new Date().toISOString() })
+        .eq('id', targetRel.id);
+
+      if (error) {
+        console.warn('Supabase acceptFriendRequest update failed:', error);
+        throw new BadRequestException('Không thể chấp nhận lời mời kết bạn');
+      }
     }
 
     // Broadcast event
@@ -311,16 +352,24 @@ export class FriendsService {
   async rejectFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    const { error } = await this.supabase.admin
+    const { data: rows } = await this.supabase.admin
       .from('friendships')
-      .delete()
-      .or(
-        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-      );
+      .select('*')
+      .or(`user_a_id.eq.${effectiveUserId},user_b_id.eq.${effectiveUserId}`);
 
-    if (error) {
-      console.warn('Supabase rejectFriendRequest delete failed:', error);
-      throw new BadRequestException('Không thể từ chối lời mời kết bạn');
+    const targetRel = rows?.find(
+      (r) =>
+        ((r.user_a_id === friendId && r.user_b_id === effectiveUserId) ||
+          (r.user_a_id === effectiveUserId && r.user_b_id === friendId)) &&
+        r.status === 'pending',
+    );
+
+    if (targetRel) {
+      const { error } = await this.supabase.admin.from('friendships').delete().eq('id', targetRel.id);
+      if (error) {
+        console.warn('Supabase rejectFriendRequest delete failed:', error);
+        throw new BadRequestException('Không thể từ chối lời mời kết bạn');
+      }
     }
 
     return { success: true };
@@ -329,16 +378,23 @@ export class FriendsService {
   async removeFriend(userId: string, friendId: string): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
-    const { error } = await this.supabase.admin
+    const { data: rows } = await this.supabase.admin
       .from('friendships')
-      .delete()
-      .or(
-        `and(user_a_id.eq.${friendId},user_b_id.eq.${effectiveUserId}),and(user_a_id.eq.${effectiveUserId},user_b_id.eq.${friendId})`,
-      );
+      .select('*')
+      .or(`user_a_id.eq.${effectiveUserId},user_b_id.eq.${effectiveUserId}`);
 
-    if (error) {
-      console.warn('Supabase removeFriend delete failed:', error);
-      throw new BadRequestException('Không thể hủy kết bạn');
+    const targetRel = rows?.find(
+      (r) =>
+        (r.user_a_id === friendId && r.user_b_id === effectiveUserId) ||
+        (r.user_a_id === effectiveUserId && r.user_b_id === friendId),
+    );
+
+    if (targetRel) {
+      const { error } = await this.supabase.admin.from('friendships').delete().eq('id', targetRel.id);
+      if (error) {
+        console.warn('Supabase removeFriend delete failed:', error);
+        throw new BadRequestException('Không thể hủy kết bạn');
+      }
     }
 
     return { success: true };
@@ -354,13 +410,17 @@ export class FriendsService {
       const { data, error } = await this.supabase.admin
         .from('friendships')
         .select('*')
-        .or(
-          `and(user_a_id.eq.${userId},user_b_id.eq.${targetId}),and(user_a_id.eq.${targetId},user_b_id.eq.${userId})`,
-        );
+        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`);
 
       if (error || !data || data.length === 0) return 'none';
 
-      const rel = data[0];
+      const rel = data.find(
+        (r) =>
+          (r.user_a_id === userId && r.user_b_id === targetId) ||
+          (r.user_a_id === targetId && r.user_b_id === userId),
+      );
+
+      if (!rel) return 'none';
       if (rel.status === 'friend') return 'friend';
       if (rel.status === 'pending') {
         return rel.user_a_id === userId ? 'pending_outgoing' : 'pending';
