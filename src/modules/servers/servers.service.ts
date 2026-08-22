@@ -3,33 +3,9 @@ import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server
 import { EventsGateway } from '../events/events.gateway';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
 
-const DEFAULT_SERVERS: Server[] = [
-  {
-    id: 'hsu-it',
-    name: 'HSU - AI & IT',
-    icon: 'HSU',
-    channels: [
-      { id: 'c-general', name: 'thảo-luận-chung', type: 'text' },
-      { id: 'c-java', name: 'đồ-án-java', type: 'text' },
-      { id: 'c-lounge', name: 'Phòng Chờ 🎙️', type: 'voice' },
-    ],
-    members: ['user'],
-  },
-  {
-    id: 'gaming-hub',
-    name: 'Gaming Community',
-    icon: '🎮',
-    channels: [
-      { id: 'c-lol', name: 'league-of-legends', type: 'text' },
-      { id: 'c-voice-1', name: 'Team 1 🔊', type: 'voice' },
-    ],
-    members: ['user'],
-  },
-];
-
 @Injectable()
 export class ServersService {
-  private memoryServers: Server[] = DEFAULT_SERVERS;
+  private memoryServers: Server[] = [];
 
   constructor(
     private readonly supabase: SupabaseService,
