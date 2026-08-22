@@ -72,9 +72,8 @@ function parseProfileStatus(p: { username: string; status_message?: string | nul
   customStatus: string | null;
   customStatusEmoji: string | null;
 } {
-  const fallback = `@${p.username}`;
   if (!p.status_message) {
-    return { statusText: fallback, customStatus: null, customStatusEmoji: null };
+    return { statusText: '', customStatus: null, customStatusEmoji: null };
   }
   const raw = p.status_message.trim();
   if (raw.startsWith('{')) {
@@ -86,13 +85,16 @@ function parseProfileStatus(p: { username: string; status_message?: string | nul
 
       const cleanText = custom || statusMsg || null;
       if (cleanText || emoji) {
-        const text = emoji && cleanText ? `${emoji} ${cleanText}` : (cleanText || emoji || fallback);
+        const text = emoji && cleanText ? `${emoji} ${cleanText}` : (cleanText || emoji || '');
         return { statusText: text, customStatus: cleanText, customStatusEmoji: emoji };
       }
     } catch {
       // ignore
     }
-    return { statusText: fallback, customStatus: null, customStatusEmoji: null };
+    return { statusText: '', customStatus: null, customStatusEmoji: null };
+  }
+  if (raw === `@${p.username}` || raw === p.username) {
+    return { statusText: '', customStatus: null, customStatusEmoji: null };
   }
   return { statusText: raw, customStatus: raw, customStatusEmoji: null };
 }
