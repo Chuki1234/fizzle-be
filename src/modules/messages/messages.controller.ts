@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Headers } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { ChatMessage, CreateMessageDto } from './dto/message.dto';
 
@@ -7,31 +7,44 @@ export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
   @Get('channel/:channelId')
-  getChannelMessages(@Param('channelId') channelId: string): ChatMessage[] {
+  async getChannelMessages(@Param('channelId') channelId: string): Promise<ChatMessage[]> {
     return this.messagesService.getChannelMessages(channelId);
   }
 
   @Post('channel/:channelId')
-  addChannelMessage(
+  async addChannelMessage(
     @Param('channelId') channelId: string,
     @Body() dto: CreateMessageDto,
-  ): ChatMessage {
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<ChatMessage> {
+    if (!dto.senderId && (userId || headerUserId)) {
+      dto.senderId = userId || headerUserId;
+    }
     return this.messagesService.addChannelMessage(channelId, dto);
   }
 
   @Get('direct/:friendId')
-  getDirectMessages(
+  async getDirectMessages(
     @Param('friendId') friendId: string,
     @Query('userId') userId?: string,
-  ): ChatMessage[] {
-    return this.messagesService.getDirectMessages(friendId, userId);
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<ChatMessage[]> {
+    const effectiveUserId = userId || headerUserId;
+    return this.messagesService.getDirectMessages(friendId, effectiveUserId);
   }
 
   @Post('direct/:friendId')
-  addDirectMessage(
+  async addDirectMessage(
     @Param('friendId') friendId: string,
     @Body() dto: CreateMessageDto,
-  ): ChatMessage {
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<ChatMessage> {
+    if (!dto.senderId && (userId || headerUserId)) {
+      dto.senderId = userId || headerUserId;
+    }
     return this.messagesService.addDirectMessage(friendId, dto);
   }
 }
+

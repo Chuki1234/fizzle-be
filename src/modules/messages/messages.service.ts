@@ -1,127 +1,80 @@
-import { Injectable, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { ChatMessage, CreateMessageDto } from './dto/message.dto';
 import { EventsGateway } from '../events/events.gateway';
-
-const DEFAULT_CHANNEL_MESSAGES: Record<string, ChatMessage[]> = {
-  'c-general': [
-    {
-      id: '1',
-      senderId: 'hoang',
-      senderName: 'Hoàng Nam',
-      text: 'Anh em làm xong bài tập Discrete Math chưa?',
-      timestamp: '09:15 AM',
-    },
-  ],
-  'c-java': [
-    {
-      id: '1',
-      senderId: 'kevin',
-      senderName: 'Kevin',
-      text: 'Dự án DoAnCuoiKi đang bị lỗi file path này Phúc ơi!',
-      timestamp: '10:00 AM',
-    },
-  ],
-};
-
-const DEFAULT_DIRECT_MESSAGES: Record<string, ChatMessage[]> = {
-  kevin: [
-    {
-      id: '1',
-      senderId: 'kevin',
-      senderName: 'Kevin',
-      text: 'Chiều nay ghé Highlands học tiếp không Phúc?',
-      timestamp: '10:45 AM',
-    },
-  ],
-  bao: [
-    {
-      id: '1',
-      senderId: 'bao',
-      senderName: 'Gia Bảo',
-      text: 'Chiều nay ghé Highlands học tiếp không Phúc?',
-      timestamp: '10:45 AM',
-    },
-  ],
-};
-
-interface StoredMessagesData {
-  channelMessages: Record<string, ChatMessage[]>;
-  directMessages: Record<string, ChatMessage[]>;
-}
+import { SupabaseService } from '../../infra/supabase/supabase.service';
 
 @Injectable()
-export class MessagesService implements OnModuleInit {
-  private readonly storagePath = path.resolve(process.cwd(), 'data', 'messages.json');
-  private data: StoredMessagesData = {
-    channelMessages: DEFAULT_CHANNEL_MESSAGES,
-    directMessages: DEFAULT_DIRECT_MESSAGES,
-  };
+export class MessagesService {
+  // In-memory runtime cache
+  private memoryChannelMessages: Record<string, ChatMessage[]> = {};
+  private memoryDirectMessages: Record<string, ChatMessage[]> = {};
 
   constructor(
+    private readonly supabase: SupabaseService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
   ) {}
 
-  onModuleInit() {
-    this.ensureStorage();
-    this.loadMessages();
-  }
+  async getChannelMessages(channelId: string): Promise<ChatMessage[]> {
+    if (!channelId) return [];
 
-  private ensureStorage() {
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.storagePath)) {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    }
-  }
-
-  private loadMessages() {
     try {
-      const content = fs.readFileSync(this.storagePath, 'utf-8');
-      this.data = JSON.parse(content);
-      if (!this.data.channelMessages) this.data.channelMessages = DEFAULT_CHANNEL_MESSAGES;
-      if (!this.data.directMessages) this.data.directMessages = DEFAULT_DIRECT_MESSAGES;
-    } catch {
-      this.data = {
-        channelMessages: DEFAULT_CHANNEL_MESSAGES,
-        directMessages: DEFAULT_DIRECT_MESSAGES,
-      };
-    }
-  }
+      const { data, error } = await this.supabase.admin
+        .from('channel_messages')
+        .select('*')
+        .eq('channel_id', channelId)
+        .order('created_at', { ascending: true });
 
-  private saveMessages() {
-    try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(this.data, null, 2), 'utf-8');
+      if (!error && data) {
+        const msgs: ChatMessage[] = data.map((m) => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderName: m.sender_name || 'Người dùng',
+          text: m.text,
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+        this.memoryChannelMessages[channelId] = msgs;
+        return msgs;
+      }
     } catch (e) {
-      console.error('Failed to save messages:', e);
+      console.warn('Supabase getChannelMessages failed, using memory fallback:', e);
     }
+
+    return this.memoryChannelMessages[channelId] || [];
   }
 
-  getChannelMessages(channelId: string): ChatMessage[] {
-    return this.data.channelMessages[channelId] || [];
-  }
-
-  addChannelMessage(channelId: string, dto: CreateMessageDto): ChatMessage {
+  async addChannelMessage(channelId: string, dto: CreateMessageDto): Promise<ChatMessage> {
+    const id = Date.now().toString();
+    const createdAt = new Date().toISOString();
     const message: ChatMessage = {
-      id: Date.now().toString(),
+      id,
       senderId: dto.senderId || 'user',
-      senderName: dto.senderName || 'Thiện Phúc',
+      senderName: dto.senderName || 'Người dùng',
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    if (!this.data.channelMessages[channelId]) {
-      this.data.channelMessages[channelId] = [];
+    // 1. Try insert into Supabase DB
+    try {
+      await this.supabase.admin.from('channel_messages').insert({
+        id,
+        channel_id: channelId,
+        sender_id: dto.senderId && dto.senderId !== 'user' ? dto.senderId : null,
+        sender_name: message.senderName,
+        text: message.text,
+        created_at: createdAt,
+      });
+    } catch (e) {
+      console.warn('Supabase insert channel_messages failed:', e);
     }
 
-    this.data.channelMessages[channelId].push(message);
-    this.saveMessages();
+    // 2. Memory cache update
+    if (!this.memoryChannelMessages[channelId]) {
+      this.memoryChannelMessages[channelId] = [];
+    }
+    this.memoryChannelMessages[channelId].push(message);
 
-    // Broadcast in real-time
+    // 3. Broadcast in real-time
     try {
       this.eventsGateway.broadcastChannelMessage(channelId, message);
     } catch (e) {
@@ -131,44 +84,94 @@ export class MessagesService implements OnModuleInit {
     return message;
   }
 
-  getDirectMessages(friendId: string, currentUserId?: string): ChatMessage[] {
+  async getDirectMessages(friendId: string, currentUserId?: string): Promise<ChatMessage[]> {
+    if (!friendId) return [];
+
+    try {
+      let query = this.supabase.admin
+        .from('direct_messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (currentUserId && friendId) {
+        query = query.or(
+          `and(sender_id.eq.${currentUserId},recipient_id.eq.${friendId}),and(sender_id.eq.${friendId},recipient_id.eq.${currentUserId})`,
+        );
+      } else {
+        query = query.or(`sender_id.eq.${friendId},recipient_id.eq.${friendId}`);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) {
+        const msgs: ChatMessage[] = data.map((m) => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderName: m.sender_name || 'Người dùng',
+          text: m.text,
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+
+        if (currentUserId && friendId) {
+          const pairKey = [currentUserId, friendId].sort().join('--');
+          this.memoryDirectMessages[pairKey] = msgs;
+        }
+        return msgs;
+      }
+    } catch (e) {
+      console.warn('Supabase getDirectMessages failed, using memory fallback:', e);
+    }
+
+    // Memory fallback
     if (currentUserId && friendId) {
       const pairKey = [currentUserId, friendId].sort().join('--');
-      if (this.data.directMessages[pairKey] && this.data.directMessages[pairKey].length > 0) {
-        return this.data.directMessages[pairKey];
+      if (this.memoryDirectMessages[pairKey] && this.memoryDirectMessages[pairKey].length > 0) {
+        return this.memoryDirectMessages[pairKey];
       }
     }
-    return this.data.directMessages[friendId] || [];
+    return this.memoryDirectMessages[friendId] || [];
   }
 
-  addDirectMessage(friendId: string, dto: CreateMessageDto): ChatMessage {
+  async addDirectMessage(friendId: string, dto: CreateMessageDto): Promise<ChatMessage> {
     const senderId = dto.senderId || 'user';
+    const id = Date.now().toString();
+    const createdAt = new Date().toISOString();
     const message: ChatMessage = {
-      id: Date.now().toString(),
+      id,
       senderId: senderId,
-      senderName: dto.senderName || 'Thiện Phúc',
+      senderName: dto.senderName || 'Người dùng',
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    // 1. Try insert into Supabase DB
+    try {
+      await this.supabase.admin.from('direct_messages').insert({
+        id,
+        sender_id: senderId,
+        recipient_id: friendId,
+        sender_name: message.senderName,
+        text: message.text,
+        created_at: createdAt,
+      });
+    } catch (e) {
+      console.warn('Supabase insert direct_messages failed:', e);
+    }
+
+    // 2. Memory cache update
     const pairKey = [senderId, friendId].sort().join('--');
-
-    if (!this.data.directMessages[pairKey]) {
-      this.data.directMessages[pairKey] = [];
+    if (!this.memoryDirectMessages[pairKey]) {
+      this.memoryDirectMessages[pairKey] = [];
     }
-    this.data.directMessages[pairKey].push(message);
+    this.memoryDirectMessages[pairKey].push(message);
 
-    // Also sync to single-key for fallback
-    if (!this.data.directMessages[friendId]) {
-      this.data.directMessages[friendId] = [];
+    if (!this.memoryDirectMessages[friendId]) {
+      this.memoryDirectMessages[friendId] = [];
     }
-    if (!this.data.directMessages[friendId].some((m) => m.id === message.id)) {
-      this.data.directMessages[friendId].push(message);
+    if (!this.memoryDirectMessages[friendId].some((m) => m.id === message.id)) {
+      this.memoryDirectMessages[friendId].push(message);
     }
 
-    this.saveMessages();
-
-    // Broadcast in real-time to both users
+    // 3. Broadcast in real-time to both users
     try {
       this.eventsGateway.sendDirectMessage(senderId, friendId, message);
     } catch (e) {
@@ -178,3 +181,4 @@ export class MessagesService implements OnModuleInit {
     return message;
   }
 }
+
