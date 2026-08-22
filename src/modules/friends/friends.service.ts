@@ -3,6 +3,68 @@ import { SupabaseService } from '../../infra/supabase/supabase.service';
 import { EventsGateway } from '../events/events.gateway';
 import { FriendRelationship, FriendUser, SendFriendRequestDto } from './dto/friend.dto';
 
+const DEFAULT_MOCK_USERS: FriendUser[] = [
+  {
+    id: 'kevin',
+    username: 'kevin_se',
+    displayName: 'Kevin',
+    avatarUrl: null,
+    presence: 'online',
+    statusText: 'Đang chơi League of Legends 🎮',
+    relationshipStatus: 'friend',
+  },
+  {
+    id: 'hoang',
+    username: 'nam_dev',
+    displayName: 'Hoàng Nam',
+    avatarUrl: null,
+    presence: 'dnd',
+    statusText: 'Đang làm Đồ Án Cuối Kỳ Java 💻',
+    relationshipStatus: 'friend',
+  },
+  {
+    id: 'minh',
+    username: 'tri_mcfc',
+    displayName: 'Minh Trí',
+    avatarUrl: null,
+    presence: 'online',
+    statusText: 'Đang xem Highlights Manchester City ⚽',
+    relationshipStatus: 'friend',
+  },
+  {
+    id: 'bao',
+    username: 'bao_game',
+    displayName: 'Gia Bảo',
+    avatarUrl: null,
+    presence: 'idle',
+    statusText: 'Chờ xíu đi pha cà phê ☕',
+    relationshipStatus: 'friend',
+  },
+  {
+    id: 'anh',
+    username: 'anh_tuan',
+    displayName: 'Tuấn Anh',
+    avatarUrl: null,
+    presence: 'offline',
+    statusText: 'Ngoại tuyến',
+    relationshipStatus: 'friend',
+  },
+  {
+    id: 'khang',
+    username: 'khang_hsu',
+    displayName: 'Quốc Khang',
+    avatarUrl: null,
+    presence: 'online',
+    statusText: 'Muốn kết bạn với bạn',
+    relationshipStatus: 'pending',
+  },
+];
+
+interface FriendsStorageData {
+  relationships: FriendRelationship[];
+  customUsers: FriendUser[];
+}
+
 @Injectable()
 export class FriendsService {
   private memoryRelationships: FriendRelationship[] = [];
@@ -11,7 +73,7 @@ export class FriendsService {
     private readonly supabase: SupabaseService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
-  ) {}
+  ) { }
 
   async searchUsers(query: string, currentUserId?: string): Promise<FriendUser[]> {
     const cleanQuery = (query || '').trim().toLowerCase();
@@ -32,14 +94,16 @@ export class FriendsService {
         for (const p of profiles) {
           if (currentUserId && p.id === currentUserId) continue;
           seenIds.add(p.id);
-          const rel = await this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const rel = this.getRelationshipStatus(currentUserId || 'user', p.id);
           results.push({
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: rel,
           });
         }
@@ -65,13 +129,16 @@ export class FriendsService {
 
       if (profiles) {
         for (const p of profiles) {
+          const parsed = parseProfileStatus(p);
           userMap.set(p.id, {
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: 'none',
           });
         }

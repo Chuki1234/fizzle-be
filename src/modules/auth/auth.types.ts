@@ -54,18 +54,27 @@ export function toUserDto(
   emailVerified: boolean,
 ): UserDto {
   let parsedMeta: Record<string, any> = {};
-  let displayStatusMessage: string | null = profile.status_message;
+  let displayStatusMessage: string | null = null;
+  let isJsonMeta = false;
 
   if (profile.status_message && profile.status_message.startsWith('{')) {
     try {
       parsedMeta = JSON.parse(profile.status_message);
-      if ('statusMessage' in parsedMeta) {
+      isJsonMeta = true;
+      if ('statusMessage' in parsedMeta && typeof parsedMeta.statusMessage === 'string') {
         displayStatusMessage = parsedMeta.statusMessage;
       }
     } catch {
-      // Not JSON, treat as plain string
+      displayStatusMessage = profile.status_message;
     }
+  } else {
+    displayStatusMessage = profile.status_message;
   }
+
+  const rawCustom = parsedMeta.customStatus;
+  const customStatusValue = (typeof rawCustom === 'string' && !rawCustom.startsWith('{'))
+    ? rawCustom
+    : (!isJsonMeta ? displayStatusMessage : null);
 
   return {
     id: profile.id,
@@ -76,7 +85,7 @@ export function toUserDto(
     bannerUrl: profile.banner_url,
     statusMessage: displayStatusMessage,
     pronouns: parsedMeta.pronouns ?? null,
-    customStatus: parsedMeta.customStatus ?? displayStatusMessage,
+    customStatus: customStatusValue,
     customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
     aboutMe: parsedMeta.aboutMe ?? null,
     bannerColor: parsedMeta.bannerColor ?? null,
