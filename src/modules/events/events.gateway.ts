@@ -155,4 +155,53 @@ export class EventsGateway
   broadcastServerUpdate(serverData: any) {
     this.server.emit('server_updated', serverData);
   }
+
+  broadcastUserStatusUpdate(userId: string, userDto: any) {
+    if (!userDto) return;
+
+    let rawCustom = userDto.customStatus;
+    let customClean: string | null = null;
+
+    if (typeof rawCustom === 'string') {
+      const trimmed = rawCustom.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          customClean = parsed.customStatus || parsed.statusMessage || null;
+        } catch {
+          customClean = null;
+        }
+      } else {
+        customClean = trimmed;
+      }
+    }
+
+    const emoji = typeof userDto.customStatusEmoji === 'string' ? userDto.customStatusEmoji : null;
+    const text = customClean || (typeof userDto.statusMessage === 'string' ? userDto.statusMessage : null);
+    const statusText = emoji && text
+      ? `${emoji} ${text}`
+      : (text || emoji || `@${userDto.username || 'user'}`);
+
+    const payload = {
+      userId,
+      id: userId,
+      username: userDto.username,
+      displayName: userDto.displayName,
+      avatarUrl: userDto.avatarUrl,
+      bannerUrl: userDto.bannerUrl,
+      presence: userDto.presence || 'online',
+      customStatus: customClean,
+      customStatusEmoji: emoji,
+      statusMessage: userDto.statusMessage,
+      statusText,
+      aboutMe: userDto.aboutMe,
+      bannerColor: userDto.bannerColor,
+      avatarFrame: userDto.avatarFrame,
+    };
+
+    if (this.server) {
+      this.server.emit('user_status_updated', payload);
+    }
+  }
 }
+

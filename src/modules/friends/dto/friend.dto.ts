@@ -5,6 +5,8 @@ export interface FriendUser {
   avatarUrl: string | null;
   presence: 'online' | 'idle' | 'dnd' | 'offline';
   statusText?: string;
+  customStatus?: string | null;
+  customStatusEmoji?: string | null;
   relationshipStatus: 'friend' | 'pending' | 'pending_outgoing' | 'none';
 }
 

@@ -112,6 +112,67 @@
       }
     ],
     "members": [
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff",
+      "9abc5633-db6b-4579-bf6b-0331976e29cf"
+    ]
+  },
+  {
+    "id": "server-1787375467492",
+    "name": "sf",
+    "icon": "🔥",
+    "channels": [
+      {
+        "id": "c-1787375467492-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787375467492-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ],
+    "members": [
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff"
+    ]
+  },
+  {
+    "id": "server-1787375480084",
+    "name": "fdfdfd",
+    "icon": "🔥",
+    "channels": [
+      {
+        "id": "c-1787375480084-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787375480084-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ],
+    "members": [
+      "9774da0a-aa4d-4a97-9dac-fbf8c61670ff"
+    ]
+  },
+  {
+    "id": "server-1787375493189",
+    "name": "aafafafaf",
+    "icon": "🔥",
+    "channels": [
+      {
+        "id": "c-1787375493189-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787375493189-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ],
+    "members": [
       "9774da0a-aa4d-4a97-9dac-fbf8c61670ff"
     ]
   }

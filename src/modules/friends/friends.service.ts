@@ -67,6 +67,36 @@ interface FriendsStorageData {
   customUsers: FriendUser[];
 }
 
+function parseProfileStatus(p: { username: string; status_message?: string | null }): {
+  statusText: string;
+  customStatus: string | null;
+  customStatusEmoji: string | null;
+} {
+  const fallback = `@${p.username}`;
+  if (!p.status_message) {
+    return { statusText: fallback, customStatus: null, customStatusEmoji: null };
+  }
+  const raw = p.status_message.trim();
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      const custom = (typeof parsed.customStatus === 'string' && !parsed.customStatus.trim().startsWith('{')) ? parsed.customStatus.trim() : null;
+      const statusMsg = (typeof parsed.statusMessage === 'string' && !parsed.statusMessage.trim().startsWith('{')) ? parsed.statusMessage.trim() : null;
+      const emoji = (typeof parsed.customStatusEmoji === 'string' && !parsed.customStatusEmoji.trim().startsWith('{')) ? parsed.customStatusEmoji.trim() : null;
+
+      const cleanText = custom || statusMsg || null;
+      if (cleanText || emoji) {
+        const text = emoji && cleanText ? `${emoji} ${cleanText}` : (cleanText || emoji || fallback);
+        return { statusText: text, customStatus: cleanText, customStatusEmoji: emoji };
+      }
+    } catch {
+      // ignore
+    }
+    return { statusText: fallback, customStatus: null, customStatusEmoji: null };
+  }
+  return { statusText: raw, customStatus: raw, customStatusEmoji: null };
+}
+
 @Injectable()
 export class FriendsService implements OnModuleInit {
   private readonly storagePath = path.resolve(process.cwd(), 'data', 'friends.json');
@@ -142,13 +172,16 @@ export class FriendsService implements OnModuleInit {
           if (currentUserId && p.id === currentUserId) continue;
           seenIds.add(p.id);
           const rel = this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const parsed = parseProfileStatus(p);
           results.push({
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: rel,
           });
         }
@@ -197,13 +230,16 @@ export class FriendsService implements OnModuleInit {
 
       if (profiles) {
         for (const p of profiles) {
+          const parsed = parseProfileStatus(p);
           userMap.set(p.id, {
             id: p.id,
             username: p.username,
             displayName: p.display_name || p.username,
             avatarUrl: p.avatar_url,
             presence: p.presence || 'online',
-            statusText: p.status_message || `@${p.username}`,
+            statusText: parsed.statusText,
+            customStatus: parsed.customStatus,
+            customStatusEmoji: parsed.customStatusEmoji,
             relationshipStatus: 'none',
           });
         }
