@@ -47,5 +47,22 @@
         "type": "text"
       }
     ]
+  },
+  {
+    "id": "server-1787368510701",
+    "name": "Kiều Lương Tâm",
+    "icon": "🔥",
+    "channels": [
+      {
+        "id": "c-1787368510701-1",
+        "name": "thảo-luận-chung",
+        "type": "text"
+      },
+      {
+        "id": "c-1787368510701-2",
+        "name": "Phòng Chờ 🎙️",
+        "type": "voice"
+      }
+    ]
   }
 ]
