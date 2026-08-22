@@ -32,7 +32,7 @@ export class FriendsService {
         for (const p of profiles) {
           if (currentUserId && p.id === currentUserId) continue;
           seenIds.add(p.id);
-          const rel = this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const rel = await this.getRelationshipStatus(currentUserId || 'user', p.id);
           const parsed = parseProfileStatus(p);
           results.push({
             id: p.id,
@@ -400,5 +400,49 @@ export class FriendsService {
     }
     return 'none';
   }
+}
+
+/**
+ * Parse a Supabase profile row's `status_message` (which may hold a JSON metadata
+ * blob) into the display fields the friends search result needs.
+ * Mirrors the logic in auth/auth.types.ts `toUserDto`.
+ */
+function parseProfileStatus(p: any): {
+  statusText: string;
+  customStatus: string | null;
+  customStatusEmoji: string | null;
+} {
+  const raw: string | null = p?.status_message ?? null;
+  let parsedMeta: Record<string, any> = {};
+  let displayStatusMessage: string | null = null;
+  let isJsonMeta = false;
+
+  if (raw && raw.startsWith('{')) {
+    try {
+      parsedMeta = JSON.parse(raw);
+      isJsonMeta = true;
+      if (typeof parsedMeta.statusMessage === 'string') {
+        displayStatusMessage = parsedMeta.statusMessage;
+      }
+    } catch {
+      displayStatusMessage = raw;
+    }
+  } else {
+    displayStatusMessage = raw;
+  }
+
+  const rawCustom = parsedMeta.customStatus;
+  const customStatus =
+    typeof rawCustom === 'string' && !rawCustom.startsWith('{')
+      ? rawCustom
+      : !isJsonMeta
+        ? displayStatusMessage
+        : null;
+
+  return {
+    statusText: displayStatusMessage ?? '',
+    customStatus: customStatus ?? null,
+    customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
+  };
 }
 

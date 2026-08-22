@@ -46,13 +46,39 @@ export class MessagesService {
   async addChannelMessage(channelId: string, dto: CreateMessageDto): Promise<ChatMessage> {
     const id = Date.now().toString();
     const createdAt = new Date().toISOString();
+    const senderId = dto.senderId || 'user';
+    const avatarUrl = dto.senderAvatarUrl || dto.avatarUrl || null;
     const message: ChatMessage = {
       id,
-      senderId: dto.senderId || 'user',
+      senderId,
       senderName: dto.senderName || 'Người dùng',
+      senderAvatarUrl: avatarUrl,
+      avatarUrl,
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
+    // Resolve avatar / display name from Supabase profiles if not provided
+    if (!avatarUrl && senderId && senderId !== 'user') {
+      void (async () => {
+        try {
+          const { data } = await this.supabase.admin
+            .from('profiles')
+            .select('avatar_url, display_name')
+            .eq('id', senderId)
+            .single();
+          if (data?.avatar_url) {
+            message.senderAvatarUrl = data.avatar_url;
+            message.avatarUrl = data.avatar_url;
+          }
+          if (data?.display_name) {
+            message.senderName = data.display_name;
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
 
     // 1. Try insert into Supabase DB
     try {
@@ -135,13 +161,38 @@ export class MessagesService {
     const senderId = dto.senderId || 'user';
     const id = Date.now().toString();
     const createdAt = new Date().toISOString();
+    const avatarUrl = dto.senderAvatarUrl || dto.avatarUrl || null;
     const message: ChatMessage = {
       id,
-      senderId: senderId,
+      senderId,
       senderName: dto.senderName || 'Người dùng',
+      senderAvatarUrl: avatarUrl,
+      avatarUrl,
       text: dto.text.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
+    // Resolve avatar / display name from Supabase profiles if not provided
+    if (!avatarUrl && senderId && senderId !== 'user') {
+      void (async () => {
+        try {
+          const { data } = await this.supabase.admin
+            .from('profiles')
+            .select('avatar_url, display_name')
+            .eq('id', senderId)
+            .single();
+          if (data?.avatar_url) {
+            message.senderAvatarUrl = data.avatar_url;
+            message.avatarUrl = data.avatar_url;
+          }
+          if (data?.display_name) {
+            message.senderName = data.display_name;
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
 
     // 1. Try insert into Supabase DB
     try {
@@ -181,4 +232,3 @@ export class MessagesService {
     return message;
   }
 }
-
