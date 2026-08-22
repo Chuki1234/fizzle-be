@@ -180,7 +180,7 @@ export class EventsGateway
     const text = customClean || (typeof userDto.statusMessage === 'string' ? userDto.statusMessage : null);
     const statusText = emoji && text
       ? `${emoji} ${text}`
-      : (text || emoji || `@${userDto.username || 'user'}`);
+      : (text || emoji || '');
 
     const payload = {
       userId,
