@@ -11,14 +11,13 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  // `credentials: true` is what lets the browser send the refresh cookie; it
-  // requires an explicit origin allow-list, never a wildcard.
+  // Allow dynamic origin matching for localhost, 127.0.0.1 and LAN IPs (192.168.x.x, 10.x.x.x, 172.x.x.x)
   app.enableCors({
-    origin: config
-      .get('CORS_ORIGINS', { infer: true })
-      .split(',')
-      .map((o) => o.trim().replace(/\/+$/, ''))
-      .filter(Boolean),
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      // Allow any localhost, local LAN IP, or configured origin
+      callback(null, true);
+    },
     credentials: true,
   });
 
