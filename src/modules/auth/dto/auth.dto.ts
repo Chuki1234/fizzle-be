@@ -38,7 +38,8 @@ const usernameField = z
   .min(2, { error: 'Tên đăng nhập phải có ít nhất 2 ký tự.' })
   .max(32, { error: 'Tên đăng nhập không được vượt quá 32 ký tự.' })
   .regex(/^[a-zA-Z0-9._-]+$/, {
-    error: 'Tên đăng nhập chỉ gồm chữ cái, chữ số, dấu chấm, gạch ngang và gạch dưới.',
+    error:
+      'Tên đăng nhập chỉ gồm chữ cái, chữ số, dấu chấm, gạch ngang và gạch dưới.',
   });
 
 export const registerSchema = z.object({
@@ -49,6 +50,11 @@ export const registerSchema = z.object({
     .max(32, { error: 'Tên hiển thị không được vượt quá 32 ký tự.' }),
   username: usernameField,
   password: passwordField,
+  phone: z
+    .string()
+    .regex(/^(\+84|0)[3-9][0-9]{8}$/, { error: 'Số điện thoại không hợp lệ.' })
+    .optional()
+    .or(z.literal('')),
   birthdate: z.iso.date({ error: 'Ngày sinh không hợp lệ.' }),
   acceptsMarketingEmail: z.boolean().default(false),
 });
@@ -114,16 +120,19 @@ export const updateProfileSchema = z.object({
   bannerGradient: z.string().max(256).nullable().optional(),
   avatarFrame: z.string().max(64).nullable().optional(),
   presence: z.enum(['online', 'idle', 'dnd', 'offline']).optional(),
-  birthdate: z.iso.date({ error: 'Ngày sinh không hợp lệ.' }).nullable().optional(),
+  birthdate: z.iso
+    .date({ error: 'Ngày sinh không hợp lệ.' })
+    .nullable()
+    .optional(),
   acceptsMarketingEmail: z.boolean().optional(),
   twoFactorEnabled: z.boolean().optional(),
 });
 export type UpdateProfileDto = z.infer<typeof updateProfileSchema>;
 
-
-
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, { error: 'Vui lòng nhập mật khẩu hiện tại.' }),
+  currentPassword: z
+    .string()
+    .min(1, { error: 'Vui lòng nhập mật khẩu hiện tại.' }),
   newPassword: passwordField,
 });
 export type ChangePasswordDto = z.infer<typeof changePasswordSchema>;
@@ -146,18 +155,19 @@ export const verifyEmailChangeSchema = z.object({
 });
 export type VerifyEmailChangeDto = z.infer<typeof verifyEmailChangeSchema>;
 
-
 /** Rejects an under-age birthdate. Kept out of the schema so the message can
  *  name the limit without duplicating the date parsing. */
 export function isOldEnough(birthdate: string, today = new Date()): boolean {
   const dob = new Date(`${birthdate}T00:00:00Z`);
   let age = today.getUTCFullYear() - dob.getUTCFullYear();
   const monthDiff = today.getUTCMonth() - dob.getUTCMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getUTCDate() < dob.getUTCDate())) {
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getUTCDate() < dob.getUTCDate())
+  ) {
     age -= 1;
   }
   return age >= MIN_AGE;
 }
 
 export { MIN_AGE };
-

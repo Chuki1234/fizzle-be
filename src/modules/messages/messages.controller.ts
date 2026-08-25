@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, Headers } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Headers,
+} from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { ChatMessage, CreateMessageDto } from './dto/message.dto';
 
@@ -7,7 +15,9 @@ export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
   @Get('channel/:channelId')
-  async getChannelMessages(@Param('channelId') channelId: string): Promise<ChatMessage[]> {
+  async getChannelMessages(
+    @Param('channelId') channelId: string,
+  ): Promise<ChatMessage[]> {
     return this.messagesService.getChannelMessages(channelId);
   }
 
@@ -47,4 +57,3 @@ export class MessagesController {
     return this.messagesService.addDirectMessage(friendId, dto);
   }
 }
-

@@ -42,7 +42,10 @@ export class EventsGateway
   // Map socketId -> userId
   private readonly socketUser = new Map<string, string>();
   // Map channelId -> Map<socketId, VoiceParticipant>
-  private readonly voiceRooms = new Map<string, Map<string, VoiceParticipant>>();
+  private readonly voiceRooms = new Map<
+    string,
+    Map<string, VoiceParticipant>
+  >();
   // Map socketId -> channelId for quick voice lookup
   private readonly socketVoiceChannel = new Map<string, string>();
 
@@ -51,7 +54,9 @@ export class EventsGateway
   }
 
   handleConnection(client: Socket) {
-    const userId = (client.handshake.query.userId as string) || client.handshake.auth?.userId;
+    const userId =
+      (client.handshake.query.userId as string) ||
+      client.handshake.auth?.userId;
     if (userId) {
       this.registerUserSocket(userId, client.id);
       void client.join(`user:${userId}`);
@@ -63,7 +68,7 @@ export class EventsGateway
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    
+
     // Voice cleanup
     this.handleLeaveVoice(client);
 
@@ -88,7 +93,9 @@ export class EventsGateway
     if (data?.userId) {
       this.registerUserSocket(data.userId, client.id);
       void client.join(`user:${data.userId}`);
-      this.logger.log(`Socket ${client.id} authenticated as user ${data.userId}`);
+      this.logger.log(
+        `Socket ${client.id} authenticated as user ${data.userId}`,
+      );
     }
   }
 
@@ -159,7 +166,7 @@ export class EventsGateway
     };
 
     const roomParticipants = this.voiceRooms.get(channelId)!;
-    
+
     // Existing participants list to send to the newly joined peer
     const existingList = Array.from(roomParticipants.values());
 
@@ -180,7 +187,9 @@ export class EventsGateway
     // 3. Broadcast global voice channels state to ALL clients (for sidebar live member list)
     this.broadcastVoiceChannelsState();
 
-    this.logger.log(`User ${data.userId} (${client.id}) joined voice channel: ${channelId}`);
+    this.logger.log(
+      `User ${data.userId} (${client.id}) joined voice channel: ${channelId}`,
+    );
   }
 
   @SubscribeMessage('voice_leave')
@@ -304,11 +313,14 @@ export class EventsGateway
 
   broadcastChannelMessage(channelId: string, message: any) {
     // Emit to channel room subscribers
-    this.server.to(`channel:${channelId}`).to(channelId).emit('receive_message', {
-      roomId: channelId,
-      channelId,
-      message,
-    });
+    this.server
+      .to(`channel:${channelId}`)
+      .to(channelId)
+      .emit('receive_message', {
+        roomId: channelId,
+        channelId,
+        message,
+      });
     // Also emit broadcast channel_message event for active clients
     this.server.emit('channel_message', {
       channelId,
@@ -338,21 +350,31 @@ export class EventsGateway
     });
 
     // Also emit direct_message event specifically to both users
-    this.server.to(`user:${senderId}`).to(`user:${recipientId}`).emit('direct_message', payload);
+    this.server
+      .to(`user:${senderId}`)
+      .to(`user:${recipientId}`)
+      .emit('direct_message', payload);
   }
 
   sendFriendRequestNotification(targetUserId: string, requestData: any) {
-    this.server.to(`user:${targetUserId}`).emit('friend_request_received', requestData);
+    this.server
+      .to(`user:${targetUserId}`)
+      .emit('friend_request_received', requestData);
     this.server.emit('friend_request_event', { targetUserId, requestData });
   }
 
   sendFriendAcceptedNotification(userAId: string, userBId: string, data: any) {
-    this.server.to(`user:${userAId}`).to(`user:${userBId}`).emit('friend_request_accepted', data);
+    this.server
+      .to(`user:${userAId}`)
+      .to(`user:${userBId}`)
+      .emit('friend_request_accepted', data);
     this.server.emit('friend_accepted_event', { userAId, userBId, data });
   }
 
   sendServerInviteNotification(targetUserId: string, serverData: any) {
-    this.server.to(`user:${targetUserId}`).emit('server_invite_received', serverData);
+    this.server
+      .to(`user:${targetUserId}`)
+      .emit('server_invite_received', serverData);
     this.server.emit('server_invite_event', { targetUserId, serverData });
   }
 
@@ -363,7 +385,7 @@ export class EventsGateway
   broadcastUserStatusUpdate(userId: string, userDto: any) {
     if (!userDto) return;
 
-    let rawCustom = userDto.customStatus;
+    const rawCustom = userDto.customStatus;
     let customClean: string | null = null;
 
     if (typeof rawCustom === 'string') {
@@ -380,11 +402,16 @@ export class EventsGateway
       }
     }
 
-    const emoji = typeof userDto.customStatusEmoji === 'string' ? userDto.customStatusEmoji : null;
-    const text = customClean || (typeof userDto.statusMessage === 'string' ? userDto.statusMessage : null);
-    const statusText = emoji && text
-      ? `${emoji} ${text}`
-      : (text || emoji || '');
+    const emoji =
+      typeof userDto.customStatusEmoji === 'string'
+        ? userDto.customStatusEmoji
+        : null;
+    const text =
+      customClean ||
+      (typeof userDto.statusMessage === 'string'
+        ? userDto.statusMessage
+        : null);
+    const statusText = emoji && text ? `${emoji} ${text}` : text || emoji || '';
 
     const payload = {
       userId,
@@ -408,5 +435,3 @@ export class EventsGateway
     }
   }
 }
-
-
