@@ -177,12 +177,17 @@ export class FriendsService {
       // ignore
     }
 
-    // 3. Map relationships to FriendUser models
+    // 3. Map relationships to FriendUser models with strict deduplication
+    const seenFriendIds = new Set<string>();
+
     for (const rel of dbRels) {
       if (rel.user_a_id === rel.user_b_id) continue;
 
       if (rel.status === 'friend') {
         const friendId = rel.user_a_id === effectiveUserId ? rel.user_b_id : rel.user_a_id;
+        if (seenFriendIds.has(friendId)) continue;
+        seenFriendIds.add(friendId);
+
         const p = profileMap.get(friendId);
         const parsed = p ? parseProfileStatus(p) : { statusText: '', customStatus: null, customStatusEmoji: null };
 
@@ -201,6 +206,9 @@ export class FriendsService {
         // Incoming request: user_a_id sent to effectiveUserId
         if (rel.user_b_id === effectiveUserId && rel.user_a_id !== effectiveUserId) {
           const senderId = rel.user_a_id;
+          if (seenFriendIds.has(senderId)) continue;
+          seenFriendIds.add(senderId);
+
           const p = profileMap.get(senderId);
           const parsed = p ? parseProfileStatus(p) : { statusText: 'Muốn kết bạn với bạn', customStatus: null, customStatusEmoji: null };
 
@@ -219,6 +227,9 @@ export class FriendsService {
         // Outgoing request: effectiveUserId sent to user_b_id
         else if (rel.user_a_id === effectiveUserId && rel.user_b_id !== effectiveUserId) {
           const targetId = rel.user_b_id;
+          if (seenFriendIds.has(targetId)) continue;
+          seenFriendIds.add(targetId);
+
           const p = profileMap.get(targetId);
           const parsed = p ? parseProfileStatus(p) : { statusText: 'Đã gửi lời mời', customStatus: null, customStatusEmoji: null };
 
