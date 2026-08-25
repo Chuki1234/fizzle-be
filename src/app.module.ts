@@ -14,6 +14,7 @@ import { MessagesModule } from './modules/messages/messages.module';
 import { EventsModule } from './modules/events/events.module';
 import { FriendsModule } from './modules/friends/friends.module';
 import { LiveKitModule } from './modules/livekit/livekit.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { LiveKitModule } from './modules/livekit/livekit.module';
     MessagesModule,
     FriendsModule,
     LiveKitModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [
