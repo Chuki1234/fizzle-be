@@ -1,5 +1,15 @@
-import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
-import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server.dto';
+import {
+  Injectable,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
+import {
+  CreateChannelDto,
+  CreateServerDto,
+  Server,
+  Channel,
+} from './dto/server.dto';
 import { EventsGateway } from '../events/events.gateway';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
 
@@ -20,7 +30,9 @@ export class ServersService {
         .select('*, channels(*)');
 
       if (!error && dbServers && dbServers.length > 0) {
-        const { data: members } = await this.supabase.admin.from('server_members').select('*');
+        const { data: members } = await this.supabase.admin
+          .from('server_members')
+          .select('*');
         const memberMap = new Map<string, string[]>();
         if (members) {
           for (const m of members) {
@@ -66,7 +78,9 @@ export class ServersService {
       // 2. Query servers
       let query = this.supabase.admin.from('servers').select('*, channels(*)');
       if (serverIds.length > 0) {
-        query = query.or(`id.in.(${serverIds.join(',')}),creator_id.eq.${effectiveUserId}`);
+        query = query.or(
+          `id.in.(${serverIds.join(',')}),creator_id.eq.${effectiveUserId}`,
+        );
       } else {
         query = query.eq('creator_id', effectiveUserId);
       }
@@ -87,11 +101,17 @@ export class ServersService {
         return mapped;
       }
     } catch (e) {
-      console.warn('Supabase getServersByUserId failed, using memory fallback:', e);
+      console.warn(
+        'Supabase getServersByUserId failed, using memory fallback:',
+        e,
+      );
     }
 
     return this.memoryServers.filter(
-      (s) => !s.members || s.members.includes(effectiveUserId) || s.members.includes('user'),
+      (s) =>
+        !s.members ||
+        s.members.includes(effectiveUserId) ||
+        s.members.includes('user'),
     );
   }
 
@@ -136,7 +156,8 @@ export class ServersService {
     const newServerId = 'server-' + Date.now();
     const defaultTextChannelId = 'c-' + Date.now() + '-1';
     const defaultVoiceChannelId = 'c-' + Date.now() + '-2';
-    const creatorId = dto.creatorId && dto.creatorId !== 'user' ? dto.creatorId : null;
+    const creatorId =
+      dto.creatorId && dto.creatorId !== 'user' ? dto.creatorId : null;
 
     const newServer: Server = {
       id: newServerId,
@@ -159,8 +180,18 @@ export class ServersService {
       });
 
       await this.supabase.admin.from('channels').insert([
-        { id: defaultTextChannelId, server_id: newServerId, name: 'thảo-luận-chung', type: 'text' },
-        { id: defaultVoiceChannelId, server_id: newServerId, name: 'Phòng Chờ 🎙️', type: 'voice' },
+        {
+          id: defaultTextChannelId,
+          server_id: newServerId,
+          name: 'thảo-luận-chung',
+          type: 'text',
+        },
+        {
+          id: defaultVoiceChannelId,
+          server_id: newServerId,
+          name: 'Phòng Chờ 🎙️',
+          type: 'voice',
+        },
       ]);
 
       if (creatorId) {
@@ -178,7 +209,10 @@ export class ServersService {
 
     // Broadcast server created
     try {
-      this.eventsGateway.broadcastServerUpdate({ type: 'SERVER_CREATED', server: newServer });
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'SERVER_CREATED',
+        server: newServer,
+      });
     } catch {
       // ignore
     }
@@ -211,7 +245,11 @@ export class ServersService {
     }
 
     try {
-      this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_ADDED', serverId, channel: newChannel });
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'CHANNEL_ADDED',
+        serverId,
+        channel: newChannel,
+      });
     } catch {
       // ignore
     }
@@ -219,7 +257,10 @@ export class ServersService {
     return newChannel;
   }
 
-  async deleteChannel(serverId: string, channelId: string): Promise<{ success: boolean; channelId: string }> {
+  async deleteChannel(
+    serverId: string,
+    channelId: string,
+  ): Promise<{ success: boolean; channelId: string }> {
     try {
       await this.supabase.admin.from('channels').delete().eq('id', channelId);
     } catch (e) {
@@ -232,7 +273,11 @@ export class ServersService {
     }
 
     try {
-      this.eventsGateway.broadcastServerUpdate({ type: 'CHANNEL_DELETED', serverId, channelId });
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'CHANNEL_DELETED',
+        serverId,
+        channelId,
+      });
     } catch {
       // ignore
     }
@@ -240,8 +285,14 @@ export class ServersService {
     return { success: true, channelId };
   }
 
-  generateInviteCode(serverId: string): { code: string; serverId: string; serverName: string } {
-    const server = this.memoryServers.find((s) => s.id === serverId) || { name: 'Máy chủ Fizzle' };
+  generateInviteCode(serverId: string): {
+    code: string;
+    serverId: string;
+    serverName: string;
+  } {
+    const server = this.memoryServers.find((s) => s.id === serverId) || {
+      name: 'Máy chủ Fizzle',
+    };
     const code = Buffer.from(`${serverId}:${Date.now()}`).toString('base64url');
     return {
       code,
@@ -260,7 +311,11 @@ export class ServersService {
     }
   }
 
-  async inviteFriendToServer(serverId: string, friendId: string, inviterId: string): Promise<{ success: boolean }> {
+  async inviteFriendToServer(
+    serverId: string,
+    friendId: string,
+    inviterId: string,
+  ): Promise<{ success: boolean }> {
     let server: Server;
     try {
       server = await this.getServerById(serverId);
@@ -298,7 +353,12 @@ export class ServersService {
         server: server,
         inviterId,
       });
-      this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId: friendId, server });
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'MEMBER_ADDED',
+        serverId,
+        userId: friendId,
+        server,
+      });
     } catch (e) {
       console.warn('Socket broadcast server invite failed:', e);
     }
@@ -306,7 +366,10 @@ export class ServersService {
     return { success: true };
   }
 
-  private async addMemberToServer(serverId: string, userId: string): Promise<Server> {
+  private async addMemberToServer(
+    serverId: string,
+    userId: string,
+  ): Promise<Server> {
     const server = await this.getServerById(serverId);
 
     try {
@@ -323,7 +386,12 @@ export class ServersService {
     if (!server.members.includes(userId)) {
       server.members.push(userId);
       try {
-        this.eventsGateway.broadcastServerUpdate({ type: 'MEMBER_ADDED', serverId, userId, server });
+        this.eventsGateway.broadcastServerUpdate({
+          type: 'MEMBER_ADDED',
+          serverId,
+          userId,
+          server,
+        });
       } catch {
         // ignore
       }
@@ -331,4 +399,3 @@ export class ServersService {
     return server;
   }
 }
-

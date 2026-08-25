@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, Headers } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Headers,
+} from '@nestjs/common';
 import { FriendsService } from './friends.service';
 import { FriendUser, SendFriendRequestDto } from './dto/friend.dto';
 

@@ -19,11 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import type { Env } from '../../config/env.validation';
 import { AuthService } from './auth.service';
-import type {
-  AuthSessionDto,
-  RegisterResultDto,
-  UserDto,
-} from './auth.types';
+import type { AuthSessionDto, RegisterResultDto, UserDto } from './auth.types';
 import type {
   ChangePasswordDto,
   ChangeUsernameDto,
@@ -210,7 +206,11 @@ export class AuthController {
     @CurrentUser() user: UserDto,
     @Body(new ZodValidationPipe(changeUsernameSchema)) dto: ChangeUsernameDto,
   ): Promise<{ user: UserDto }> {
-    const updatedUser = await this.auth.changeUsername(user.id, user.email, dto);
+    const updatedUser = await this.auth.changeUsername(
+      user.id,
+      user.email,
+      dto,
+    );
     return { user: updatedUser };
   }
 
@@ -220,7 +220,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async requestEmailChange(
     @CurrentUser() user: UserDto,
-    @Body(new ZodValidationPipe(requestEmailChangeSchema)) dto: RequestEmailChangeDto,
+    @Body(new ZodValidationPipe(requestEmailChangeSchema))
+    dto: RequestEmailChangeDto,
   ): Promise<{ message: string }> {
     return this.auth.requestEmailChange(user.id, user.email, dto);
   }
@@ -231,7 +232,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async verifyEmailChange(
     @CurrentUser() user: UserDto,
-    @Body(new ZodValidationPipe(verifyEmailChangeSchema)) dto: VerifyEmailChangeDto,
+    @Body(new ZodValidationPipe(verifyEmailChangeSchema))
+    dto: VerifyEmailChangeDto,
   ): Promise<{ user: UserDto }> {
     const updatedUser = await this.auth.verifyEmailChange(
       user.id,

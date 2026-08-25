@@ -46,6 +46,7 @@ export interface AuthSessionDto {
 export interface RegisterResultDto {
   userId: string;
   email: string;
+  phone?: string;
   verificationRequired: boolean;
 }
 
@@ -62,7 +63,10 @@ export function toUserDto(
     try {
       parsedMeta = JSON.parse(profile.status_message);
       isJsonMeta = true;
-      if ('statusMessage' in parsedMeta && typeof parsedMeta.statusMessage === 'string') {
+      if (
+        'statusMessage' in parsedMeta &&
+        typeof parsedMeta.statusMessage === 'string'
+      ) {
         displayStatusMessage = parsedMeta.statusMessage;
       }
     } catch {
@@ -73,9 +77,12 @@ export function toUserDto(
   }
 
   const rawCustom = parsedMeta.customStatus;
-  const customStatusValue = (typeof rawCustom === 'string' && !rawCustom.startsWith('{'))
-    ? rawCustom
-    : (!isJsonMeta ? displayStatusMessage : null);
+  const customStatusValue =
+    typeof rawCustom === 'string' && !rawCustom.startsWith('{')
+      ? rawCustom
+      : !isJsonMeta
+        ? displayStatusMessage
+        : null;
 
   return {
     id: profile.id,
@@ -100,4 +107,3 @@ export function toUserDto(
     createdAt: profile.created_at,
   };
 }
-

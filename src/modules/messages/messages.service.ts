@@ -27,7 +27,10 @@ export class MessagesService {
           senderId: m.sender_id,
           senderName: m.sender_name || 'Người dùng',
           text: m.text,
-          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: new Date(m.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
         }));
         return msgs;
       }
@@ -38,7 +41,10 @@ export class MessagesService {
     return [];
   }
 
-  async addChannelMessage(channelId: string, dto: CreateMessageDto): Promise<ChatMessage> {
+  async addChannelMessage(
+    channelId: string,
+    dto: CreateMessageDto,
+  ): Promise<ChatMessage> {
     const id = Date.now().toString();
     const createdAt = new Date().toISOString();
     const senderId = dto.senderId || 'user';
@@ -50,7 +56,10 @@ export class MessagesService {
       senderAvatarUrl: avatarUrl,
       avatarUrl,
       text: dto.text.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
     };
 
     // Resolve avatar / display name from Supabase profiles if not provided
@@ -80,7 +89,8 @@ export class MessagesService {
       await this.supabase.admin.from('channel_messages').insert({
         id,
         channel_id: channelId,
-        sender_id: dto.senderId && dto.senderId !== 'user' ? dto.senderId : null,
+        sender_id:
+          dto.senderId && dto.senderId !== 'user' ? dto.senderId : null,
         sender_name: message.senderName,
         text: message.text,
         created_at: createdAt,
@@ -99,7 +109,10 @@ export class MessagesService {
     return message;
   }
 
-  async getDirectMessages(friendId: string, currentUserId?: string): Promise<ChatMessage[]> {
+  async getDirectMessages(
+    friendId: string,
+    currentUserId?: string,
+  ): Promise<ChatMessage[]> {
     if (!friendId) return [];
 
     try {
@@ -109,9 +122,13 @@ export class MessagesService {
         .order('created_at', { ascending: true });
 
       if (currentUserId && friendId) {
-        query = query.or(`sender_id.eq.${currentUserId},recipient_id.eq.${currentUserId}`);
+        query = query.or(
+          `sender_id.eq.${currentUserId},recipient_id.eq.${currentUserId}`,
+        );
       } else {
-        query = query.or(`sender_id.eq.${friendId},recipient_id.eq.${friendId}`);
+        query = query.or(
+          `sender_id.eq.${friendId},recipient_id.eq.${friendId}`,
+        );
       }
 
       const { data, error } = await query;
@@ -119,7 +136,8 @@ export class MessagesService {
         const filtered = currentUserId
           ? data.filter(
               (m) =>
-                (m.sender_id === currentUserId && m.recipient_id === friendId) ||
+                (m.sender_id === currentUserId &&
+                  m.recipient_id === friendId) ||
                 (m.sender_id === friendId && m.recipient_id === currentUserId),
             )
           : data;
@@ -129,7 +147,10 @@ export class MessagesService {
           senderId: m.sender_id,
           senderName: m.sender_name || 'Người dùng',
           text: m.text,
-          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: new Date(m.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
         }));
         return msgs;
       }
@@ -140,7 +161,10 @@ export class MessagesService {
     return [];
   }
 
-  async addDirectMessage(friendId: string, dto: CreateMessageDto): Promise<ChatMessage> {
+  async addDirectMessage(
+    friendId: string,
+    dto: CreateMessageDto,
+  ): Promise<ChatMessage> {
     const senderId = dto.senderId || 'user';
     const id = Date.now().toString();
     const createdAt = new Date().toISOString();
@@ -152,7 +176,10 @@ export class MessagesService {
       senderAvatarUrl: avatarUrl,
       avatarUrl,
       text: dto.text.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
     };
 
     // Resolve avatar / display name from Supabase profiles if not provided
@@ -179,14 +206,16 @@ export class MessagesService {
 
     // 1. Try insert into Supabase DB
     try {
-      const { error } = await this.supabase.admin.from('direct_messages').insert({
-        id,
-        sender_id: senderId,
-        recipient_id: friendId,
-        sender_name: message.senderName,
-        text: message.text,
-        created_at: createdAt,
-      });
+      const { error } = await this.supabase.admin
+        .from('direct_messages')
+        .insert({
+          id,
+          sender_id: senderId,
+          recipient_id: friendId,
+          sender_name: message.senderName,
+          text: message.text,
+          created_at: createdAt,
+        });
       if (error) {
         console.warn('Supabase insert direct_messages error:', error);
       }
