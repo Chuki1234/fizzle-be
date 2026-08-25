@@ -4,6 +4,11 @@ export class CreateServerDto {
   creatorId?: string;
 }
 
+export class UpdateServerDto {
+  name?: string;
+  icon?: string;
+}
+
 export class CreateChannelDto {
   name!: string;
   type!: 'text' | 'voice';

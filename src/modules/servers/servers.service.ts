@@ -7,6 +7,7 @@ import {
 import {
   CreateChannelDto,
   CreateServerDto,
+  UpdateServerDto,
   Server,
   Channel,
 } from './dto/server.dto';
@@ -398,4 +399,104 @@ export class ServersService {
     }
     return server;
   }
+
+  async updateServer(id: string, dto: UpdateServerDto): Promise<Server> {
+    const server = await this.getServerById(id);
+
+    const updatedFields: Partial<{ name: string; icon: string }> = {};
+    if (dto.name && dto.name.trim()) {
+      updatedFields.name = dto.name.trim();
+      server.name = updatedFields.name;
+    }
+    if (dto.icon !== undefined) {
+      updatedFields.icon = dto.icon;
+      server.icon = dto.icon;
+    }
+
+    try {
+      await this.supabase.admin
+        .from('servers')
+        .update(updatedFields)
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Supabase updateServer failed:', e);
+    }
+
+    // Update in memory
+    const memIdx = this.memoryServers.findIndex((s) => s.id === id);
+    if (memIdx !== -1) {
+      this.memoryServers[memIdx] = { ...this.memoryServers[memIdx], ...updatedFields };
+    }
+
+    try {
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'SERVER_UPDATED',
+        serverId: id,
+        server,
+      });
+    } catch {
+      // ignore
+    }
+
+    return server;
+  }
+
+  async deleteServer(
+    id: string,
+    requestingUserId: string,
+  ): Promise<{ success: boolean }> {
+    // Verify ownership via Supabase
+    try {
+      const { data: serverRow } = await this.supabase.admin
+        .from('servers')
+        .select('creator_id')
+        .eq('id', id)
+        .single();
+
+      if (serverRow && serverRow.creator_id && serverRow.creator_id !== requestingUserId) {
+        throw new Error('Bạn không phải chủ sở hữu máy chủ này.');
+      }
+    } catch (e: any) {
+      if (e?.message?.includes('chủ sở hữu')) throw e;
+      // If Supabase lookup fails, continue (graceful degradation)
+      console.warn('Supabase ownership check failed:', e);
+    }
+
+    // 1. Delete channels
+    try {
+      await this.supabase.admin.from('channels').delete().eq('server_id', id);
+    } catch (e) {
+      console.warn('Supabase deleteServer channels failed:', e);
+    }
+
+    // 2. Delete server members
+    try {
+      await this.supabase.admin.from('server_members').delete().eq('server_id', id);
+    } catch (e) {
+      console.warn('Supabase deleteServer members failed:', e);
+    }
+
+    // 3. Delete server
+    try {
+      await this.supabase.admin.from('servers').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Supabase deleteServer failed:', e);
+    }
+
+    // 4. Remove from memory
+    this.memoryServers = this.memoryServers.filter((s) => s.id !== id);
+
+    // 5. Broadcast deletion
+    try {
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'SERVER_DELETED',
+        serverId: id,
+      });
+    } catch {
+      // ignore
+    }
+
+    return { success: true };
+  }
 }
+

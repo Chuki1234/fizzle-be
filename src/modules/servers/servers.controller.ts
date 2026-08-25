@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Headers,
@@ -12,6 +13,7 @@ import { ServersService } from './servers.service';
 import {
   CreateChannelDto,
   CreateServerDto,
+  UpdateServerDto,
   Server,
   Channel,
 } from './dto/server.dto';
@@ -97,5 +99,26 @@ export class ServersController {
   ): Promise<Server> {
     const effectiveUserId = body.userId || userId || headerUserId || 'user';
     return this.serversService.joinServerByCode(code, effectiveUserId);
+  }
+
+  @Patch(':id')
+  async updateServer(
+    @Param('id') id: string,
+    @Body() dto: UpdateServerDto,
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<Server> {
+    return this.serversService.updateServer(id, dto);
+  }
+
+  @Delete(':id')
+  async deleteServer(
+    @Param('id') id: string,
+    @Body() body: { userId?: string },
+    @Query('userId') userId?: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<{ success: boolean }> {
+    const effectiveUserId = body.userId || userId || headerUserId || 'user';
+    return this.serversService.deleteServer(id, effectiveUserId);
   }
 }
