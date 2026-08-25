@@ -23,9 +23,11 @@ export class ZodValidationPipe<T> implements PipeTransform<unknown, T> {
       fieldErrors[key] ??= issue.message;
     }
 
+    const firstMessage = result.error.issues[0]?.message;
+
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'Dữ liệu gửi lên không hợp lệ.',
+      message: firstMessage || 'Dữ liệu gửi lên không hợp lệ.',
       fieldErrors,
     });
   }

@@ -14,7 +14,8 @@ export class EmailService {
     const port = this.config.get('SMTP_PORT', { infer: true }) ?? 587;
     const user = this.config.get('SMTP_USER', { infer: true });
     const pass = this.config.get('SMTP_PASS', { infer: true });
-    const secure = this.config.get('SMTP_SECURE', { infer: true }) ?? (port === 465);
+    const secure =
+      this.config.get('SMTP_SECURE', { infer: true }) ?? port === 465;
     this.defaultFrom =
       this.config.get('SMTP_FROM', { infer: true }) ??
       `"Fizzle App" <${user || 'no-reply@fizzle.app'}>`;
@@ -57,7 +58,9 @@ export class EmailService {
     type: 'signup' | 'recovery' = 'signup',
   ): Promise<boolean> {
     const isSignup = type === 'signup';
-    const title = isSignup ? 'Xác thực tài khoản Fizzle' : 'Đặt lại mật khẩu Fizzle';
+    const title = isSignup
+      ? 'Xác thực tài khoản Fizzle'
+      : 'Đặt lại mật khẩu Fizzle';
     const description = isSignup
       ? 'Cảm ơn bạn đã đăng ký tài khoản Fizzle! Sử dụng mã OTP bên dưới để hoàn tất xác thực:'
       : 'Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Sử dụng mã OTP bên dưới:';
@@ -142,7 +145,9 @@ export class EmailService {
       this.logger.log(`Email OTP successfully delivered to ${to}`);
       return true;
     } catch (err: any) {
-      this.logger.error(`Failed to send email via SMTP to ${to}: ${err?.message}`);
+      this.logger.error(
+        `Failed to send email via SMTP to ${to}: ${err?.message}`,
+      );
       return false;
     }
   }

@@ -22,6 +22,13 @@ export interface UserDto {
   avatarUrl: string | null;
   bannerUrl: string | null;
   statusMessage: string | null;
+  pronouns: string | null;
+  customStatus: string | null;
+  customStatusEmoji: string | null;
+  aboutMe: string | null;
+  bannerColor: string | null;
+  bannerGradient: string | null;
+  avatarFrame: string | null;
   presence: 'online' | 'idle' | 'dnd' | 'offline';
   birthdate: string | null;
   emailVerified: boolean;
@@ -48,6 +55,35 @@ export function toUserDto(
   email: string,
   emailVerified: boolean,
 ): UserDto {
+  let parsedMeta: Record<string, any> = {};
+  let displayStatusMessage: string | null = null;
+  let isJsonMeta = false;
+
+  if (profile.status_message && profile.status_message.startsWith('{')) {
+    try {
+      parsedMeta = JSON.parse(profile.status_message);
+      isJsonMeta = true;
+      if (
+        'statusMessage' in parsedMeta &&
+        typeof parsedMeta.statusMessage === 'string'
+      ) {
+        displayStatusMessage = parsedMeta.statusMessage;
+      }
+    } catch {
+      displayStatusMessage = profile.status_message;
+    }
+  } else {
+    displayStatusMessage = profile.status_message;
+  }
+
+  const rawCustom = parsedMeta.customStatus;
+  const customStatusValue =
+    typeof rawCustom === 'string' && !rawCustom.startsWith('{')
+      ? rawCustom
+      : !isJsonMeta
+        ? displayStatusMessage
+        : null;
+
   return {
     id: profile.id,
     email,
@@ -55,7 +91,14 @@ export function toUserDto(
     displayName: profile.display_name,
     avatarUrl: profile.avatar_url,
     bannerUrl: profile.banner_url,
-    statusMessage: profile.status_message,
+    statusMessage: displayStatusMessage,
+    pronouns: parsedMeta.pronouns ?? null,
+    customStatus: customStatusValue,
+    customStatusEmoji: parsedMeta.customStatusEmoji ?? null,
+    aboutMe: parsedMeta.aboutMe ?? null,
+    bannerColor: parsedMeta.bannerColor ?? null,
+    bannerGradient: parsedMeta.bannerGradient ?? null,
+    avatarFrame: parsedMeta.avatarFrame ?? null,
     presence: profile.presence,
     birthdate: profile.birthdate,
     emailVerified,

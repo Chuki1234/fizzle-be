@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -18,26 +19,32 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import type { Env } from '../../config/env.validation';
 import { AuthService } from './auth.service';
+import type { AuthSessionDto, RegisterResultDto, UserDto } from './auth.types';
 import type {
-  AuthSessionDto,
-  RegisterResultDto,
-  UserDto,
-} from './auth.types';
-import type {
+  ChangePasswordDto,
+  ChangeUsernameDto,
   ForgotPasswordDto,
   LoginDto,
   RegisterDto,
+  RequestEmailChangeDto,
   ResendOtpDto,
   ResetPasswordDto,
+  UpdateProfileDto,
+  VerifyEmailChangeDto,
   VerifyOtpDto,
   VerifyResetCodeDto,
 } from './dto/auth.dto';
 import {
+  changePasswordSchema,
+  changeUsernameSchema,
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  requestEmailChangeSchema,
   resendOtpSchema,
   resetPasswordSchema,
+  updateProfileSchema,
+  verifyEmailChangeSchema,
   verifyOtpSchema,
   verifyResetCodeSchema,
 } from './dto/auth.dto';
@@ -164,6 +171,77 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: UserDto): { user: UserDto } {
     return { user };
+  }
+
+  @Patch('me')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(updateProfileSchema)) dto: UpdateProfileDto,
+  ): Promise<{ user: UserDto }> {
+    const updatedUser = await this.auth.updateProfile(
+      user.id,
+      user.email,
+      user.emailVerified,
+      dto,
+    );
+    return { user: updatedUser };
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(changePasswordSchema)) dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.auth.changePassword(user.id, user.email, dto);
+  }
+
+  @Post('change-username')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async changeUsername(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(changeUsernameSchema)) dto: ChangeUsernameDto,
+  ): Promise<{ user: UserDto }> {
+    const updatedUser = await this.auth.changeUsername(
+      user.id,
+      user.email,
+      dto,
+    );
+    return { user: updatedUser };
+  }
+
+  @Post('request-email-change')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  async requestEmailChange(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(requestEmailChangeSchema))
+    dto: RequestEmailChangeDto,
+  ): Promise<{ message: string }> {
+    return this.auth.requestEmailChange(user.id, user.email, dto);
+  }
+
+  @Post('verify-email-change')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  async verifyEmailChange(
+    @CurrentUser() user: UserDto,
+    @Body(new ZodValidationPipe(verifyEmailChangeSchema))
+    dto: VerifyEmailChangeDto,
+  ): Promise<{ user: UserDto }> {
+    const updatedUser = await this.auth.verifyEmailChange(
+      user.id,
+      user.email,
+      user.emailVerified,
+      dto,
+    );
+    return { user: updatedUser };
   }
 
   @Post('logout')

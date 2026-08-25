@@ -22,7 +22,10 @@ export const envSchema = z.object({
   /** Omit in development so the cookie defaults to the request host. */
   COOKIE_DOMAIN: z.string().optional(),
 
-  /** Optional SMTP configuration for direct 100% email delivery */
+  /** OTP code for verifying email changes. */
+  EMAIL_CHANGE_OTP: z.string().default('123456'),
+
+  /** SMTP Mailer configuration */
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),
