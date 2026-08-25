@@ -6,16 +6,19 @@ import { AppService } from './app.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ConfigModule } from './config/config.module';
 import { SupabaseModule } from './infra/supabase/supabase.module';
+import { RedisModule } from './infra/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ServersModule } from './modules/servers/servers.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { EventsModule } from './modules/events/events.module';
 import { FriendsModule } from './modules/friends/friends.module';
+import { LiveKitModule } from './modules/livekit/livekit.module';
 
 @Module({
   imports: [
     ConfigModule,
     SupabaseModule,
+    RedisModule,
     // Baseline limit for every route; auth endpoints tighten it with @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
     EventsModule,
@@ -23,6 +26,7 @@ import { FriendsModule } from './modules/friends/friends.module';
     ServersModule,
     MessagesModule,
     FriendsModule,
+    LiveKitModule,
   ],
   controllers: [AppController],
   providers: [
