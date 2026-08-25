@@ -11,4 +11,3 @@ import { SupabaseModule } from '../../infra/supabase/supabase.module';
   exports: [ServersService],
 })
 export class ServersModule {}
-

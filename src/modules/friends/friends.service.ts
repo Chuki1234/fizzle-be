@@ -1,10 +1,23 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
 import { EventsGateway } from '../events/events.gateway';
-import { FriendRelationship, FriendUser, SendFriendRequestDto } from './dto/friend.dto';
+import {
+  FriendRelationship,
+  FriendUser,
+  SendFriendRequestDto,
+} from './dto/friend.dto';
 
-function parseProfileStatus(profile: { status_message?: string | null; username?: string }) {
+function parseProfileStatus(profile: {
+  status_message?: string | null;
+  username?: string;
+}) {
   let parsedMeta: Record<string, any> = {};
   let displayStatusMessage: string | null = null;
   let isJsonMeta = false;
@@ -13,7 +26,10 @@ function parseProfileStatus(profile: { status_message?: string | null; username?
     try {
       parsedMeta = JSON.parse(profile.status_message);
       isJsonMeta = true;
-      if ('statusMessage' in parsedMeta && typeof parsedMeta.statusMessage === 'string') {
+      if (
+        'statusMessage' in parsedMeta &&
+        typeof parsedMeta.statusMessage === 'string'
+      ) {
         displayStatusMessage = parsedMeta.statusMessage;
       }
     } catch {
@@ -27,7 +43,9 @@ function parseProfileStatus(profile: { status_message?: string | null; username?
   const customStatusValue =
     typeof rawCustom === 'string' && !rawCustom.startsWith('{')
       ? rawCustom
-      : (!isJsonMeta ? displayStatusMessage : null);
+      : !isJsonMeta
+        ? displayStatusMessage
+        : null;
 
   return {
     statusText: displayStatusMessage || '',
@@ -38,7 +56,13 @@ function parseProfileStatus(profile: { status_message?: string | null; username?
 
 @Injectable()
 export class FriendsService {
-  private inMemoryRels: { id: string; user_a_id: string; user_b_id: string; status: string; created_at: string }[] = [];
+  private inMemoryRels: {
+    id: string;
+    user_a_id: string;
+    user_b_id: string;
+    status: string;
+    created_at: string;
+  }[] = [];
 
   constructor(
     private readonly supabase: SupabaseService,
@@ -46,7 +70,10 @@ export class FriendsService {
     private readonly eventsGateway: EventsGateway,
   ) {}
 
-  async searchUsers(query: string, currentUserId?: string): Promise<FriendUser[]> {
+  async searchUsers(
+    query: string,
+    currentUserId?: string,
+  ): Promise<FriendUser[]> {
     const cleanQuery = (query || '').trim().toLowerCase();
     if (!cleanQuery) return [];
 
@@ -65,7 +92,10 @@ export class FriendsService {
         for (const p of profiles) {
           if (currentUserId && p.id === currentUserId) continue;
           seenIds.add(p.id);
-          const rel = await this.getRelationshipStatus(currentUserId || 'user', p.id);
+          const rel = await this.getRelationshipStatus(
+            currentUserId || 'user',
+            p.id,
+          );
           const parsed = parseProfileStatus(p);
           results.push({
             id: p.id,
@@ -86,12 +116,60 @@ export class FriendsService {
 
     // 2. Search fallback mock users
     const MOCK_USERS: FriendUser[] = [
-      { id: 'kevin', username: 'kevin_se', displayName: 'Kevin', avatarUrl: null, presence: 'online', statusText: 'Đang chơi League of Legends 🎮', relationshipStatus: 'friend' },
-      { id: 'hoang', username: 'nam_dev', displayName: 'Hoàng Nam', avatarUrl: null, presence: 'dnd', statusText: 'Đang làm Đồ Án Cuối Kỳ Java 💻', relationshipStatus: 'friend' },
-      { id: 'minh', username: 'tri_mcfc', displayName: 'Minh Trí', avatarUrl: null, presence: 'online', statusText: 'Đang xem Highlights Manchester City ⚽', relationshipStatus: 'friend' },
-      { id: 'bao', username: 'bao_game', displayName: 'Gia Bảo', avatarUrl: null, presence: 'idle', statusText: 'Chờ xíu đi pha cà phê ☕', relationshipStatus: 'friend' },
-      { id: 'anh', username: 'anh_tuan', displayName: 'Tuấn Anh', avatarUrl: null, presence: 'offline', statusText: 'Ngoại tuyến', relationshipStatus: 'friend' },
-      { id: 'khang', username: 'khang_hsu', displayName: 'Quốc Khang', avatarUrl: null, presence: 'online', statusText: 'Muốn kết bạn với bạn', relationshipStatus: 'pending' },
+      {
+        id: 'kevin',
+        username: 'kevin_se',
+        displayName: 'Kevin',
+        avatarUrl: null,
+        presence: 'online',
+        statusText: 'Đang chơi League of Legends 🎮',
+        relationshipStatus: 'friend',
+      },
+      {
+        id: 'hoang',
+        username: 'nam_dev',
+        displayName: 'Hoàng Nam',
+        avatarUrl: null,
+        presence: 'dnd',
+        statusText: 'Đang làm Đồ Án Cuối Kỳ Java 💻',
+        relationshipStatus: 'friend',
+      },
+      {
+        id: 'minh',
+        username: 'tri_mcfc',
+        displayName: 'Minh Trí',
+        avatarUrl: null,
+        presence: 'online',
+        statusText: 'Đang xem Highlights Manchester City ⚽',
+        relationshipStatus: 'friend',
+      },
+      {
+        id: 'bao',
+        username: 'bao_game',
+        displayName: 'Gia Bảo',
+        avatarUrl: null,
+        presence: 'idle',
+        statusText: 'Chờ xíu đi pha cà phê ☕',
+        relationshipStatus: 'friend',
+      },
+      {
+        id: 'anh',
+        username: 'anh_tuan',
+        displayName: 'Tuấn Anh',
+        avatarUrl: null,
+        presence: 'offline',
+        statusText: 'Ngoại tuyến',
+        relationshipStatus: 'friend',
+      },
+      {
+        id: 'khang',
+        username: 'khang_hsu',
+        displayName: 'Quốc Khang',
+        avatarUrl: null,
+        presence: 'online',
+        statusText: 'Muốn kết bạn với bạn',
+        relationshipStatus: 'pending',
+      },
     ];
 
     for (const u of MOCK_USERS) {
@@ -103,7 +181,10 @@ export class FriendsService {
         u.displayName.toLowerCase().includes(cleanQuery)
       ) {
         seenIds.add(u.id);
-        const rel = await this.getRelationshipStatus(currentUserId || 'user', u.id);
+        const rel = await this.getRelationshipStatus(
+          currentUserId || 'user',
+          u.id,
+        );
         results.push({
           ...u,
           relationshipStatus: rel,
@@ -135,7 +216,10 @@ export class FriendsService {
 
     // Merge in-memory relationships for this user
     for (const mem of this.inMemoryRels) {
-      if (mem.user_a_id === effectiveUserId || mem.user_b_id === effectiveUserId) {
+      if (
+        mem.user_a_id === effectiveUserId ||
+        mem.user_b_id === effectiveUserId
+      ) {
         if (!dbRels.some((r) => r.id === mem.id)) {
           dbRels.push(mem);
         }
@@ -149,9 +233,15 @@ export class FriendsService {
     // Collect unique partner IDs to fetch profiles
     const partnerIds = new Set<string>();
     for (const rel of dbRels) {
-      if (rel.user_a_id === effectiveUserId && rel.user_b_id !== effectiveUserId) {
+      if (
+        rel.user_a_id === effectiveUserId &&
+        rel.user_b_id !== effectiveUserId
+      ) {
         partnerIds.add(rel.user_b_id);
-      } else if (rel.user_b_id === effectiveUserId && rel.user_a_id !== effectiveUserId) {
+      } else if (
+        rel.user_b_id === effectiveUserId &&
+        rel.user_a_id !== effectiveUserId
+      ) {
         partnerIds.add(rel.user_a_id);
       }
     }
@@ -182,9 +272,12 @@ export class FriendsService {
       if (rel.user_a_id === rel.user_b_id) continue;
 
       if (rel.status === 'friend') {
-        const friendId = rel.user_a_id === effectiveUserId ? rel.user_b_id : rel.user_a_id;
+        const friendId =
+          rel.user_a_id === effectiveUserId ? rel.user_b_id : rel.user_a_id;
         const p = profileMap.get(friendId);
-        const parsed = p ? parseProfileStatus(p) : { statusText: '', customStatus: null, customStatusEmoji: null };
+        const parsed = p
+          ? parseProfileStatus(p)
+          : { statusText: '', customStatus: null, customStatusEmoji: null };
 
         friendsList.push({
           id: friendId,
@@ -199,10 +292,19 @@ export class FriendsService {
         });
       } else if (rel.status === 'pending') {
         // Incoming request: user_a_id sent to effectiveUserId
-        if (rel.user_b_id === effectiveUserId && rel.user_a_id !== effectiveUserId) {
+        if (
+          rel.user_b_id === effectiveUserId &&
+          rel.user_a_id !== effectiveUserId
+        ) {
           const senderId = rel.user_a_id;
           const p = profileMap.get(senderId);
-          const parsed = p ? parseProfileStatus(p) : { statusText: 'Muốn kết bạn với bạn', customStatus: null, customStatusEmoji: null };
+          const parsed = p
+            ? parseProfileStatus(p)
+            : {
+                statusText: 'Muốn kết bạn với bạn',
+                customStatus: null,
+                customStatusEmoji: null,
+              };
 
           friendsList.push({
             id: senderId,
@@ -217,10 +319,19 @@ export class FriendsService {
           });
         }
         // Outgoing request: effectiveUserId sent to user_b_id
-        else if (rel.user_a_id === effectiveUserId && rel.user_b_id !== effectiveUserId) {
+        else if (
+          rel.user_a_id === effectiveUserId &&
+          rel.user_b_id !== effectiveUserId
+        ) {
           const targetId = rel.user_b_id;
           const p = profileMap.get(targetId);
-          const parsed = p ? parseProfileStatus(p) : { statusText: 'Đã gửi lời mời', customStatus: null, customStatusEmoji: null };
+          const parsed = p
+            ? parseProfileStatus(p)
+            : {
+                statusText: 'Đã gửi lời mời',
+                customStatus: null,
+                customStatusEmoji: null,
+              };
 
           friendsList.push({
             id: targetId,
@@ -240,7 +351,10 @@ export class FriendsService {
     return friendsList;
   }
 
-  async sendFriendRequest(senderId: string, dto: SendFriendRequestDto): Promise<FriendRelationship> {
+  async sendFriendRequest(
+    senderId: string,
+    dto: SendFriendRequestDto,
+  ): Promise<FriendRelationship> {
     const effectiveSenderId = senderId || dto.senderId || 'user';
     let targetUserId = dto.targetUserId;
 
@@ -260,11 +374,15 @@ export class FriendsService {
     }
 
     if (!targetUserId) {
-      throw new NotFoundException('Không tìm thấy người dùng với thông tin được cung cấp');
+      throw new NotFoundException(
+        'Không tìm thấy người dùng với thông tin được cung cấp',
+      );
     }
 
     if (targetUserId === effectiveSenderId) {
-      throw new BadRequestException('Bạn không thể gửi lời mời kết bạn cho chính mình');
+      throw new BadRequestException(
+        'Bạn không thể gửi lời mời kết bạn cho chính mình',
+      );
     }
 
     // Check existing relationship in DB or in-memory
@@ -273,7 +391,9 @@ export class FriendsService {
       const { data: existingRels } = await this.supabase.admin
         .from('friendships')
         .select('*')
-        .or(`user_a_id.eq.${effectiveSenderId},user_b_id.eq.${effectiveSenderId}`);
+        .or(
+          `user_a_id.eq.${effectiveSenderId},user_b_id.eq.${effectiveSenderId}`,
+        );
 
       existing = existingRels?.find(
         (r) =>
@@ -297,7 +417,9 @@ export class FriendsService {
         throw new BadRequestException('Hai bạn đã là bạn bè rồi!');
       }
       if (existing.user_a_id === effectiveSenderId) {
-        throw new BadRequestException('Bạn đã gửi lời mời kết bạn cho người này rồi!');
+        throw new BadRequestException(
+          'Bạn đã gửi lời mời kết bạn cho người này rồi!',
+        );
       }
       // Auto-accept if incoming request exists
       existing.status = 'friend';
@@ -318,7 +440,11 @@ export class FriendsService {
         status: 'friend',
         createdAt: existing.created_at || new Date().toISOString(),
       };
-      this.eventsGateway.sendFriendAcceptedNotification(effectiveSenderId, targetUserId, acceptedRel);
+      this.eventsGateway.sendFriendAcceptedNotification(
+        effectiveSenderId,
+        targetUserId,
+        acceptedRel,
+      );
       return acceptedRel;
     }
 
@@ -352,7 +478,10 @@ export class FriendsService {
         created_at: createdAt,
       });
     } catch (e) {
-      console.warn('Supabase insert friendship warning (using in-memory fallback):', e);
+      console.warn(
+        'Supabase insert friendship warning (using in-memory fallback):',
+        e,
+      );
     }
 
     // Get sender's profile for real-time notification
@@ -366,7 +495,8 @@ export class FriendsService {
         .eq('id', effectiveSenderId)
         .single();
       if (senderProf) {
-        senderName = senderProf.display_name || senderProf.username || effectiveSenderId;
+        senderName =
+          senderProf.display_name || senderProf.username || effectiveSenderId;
         senderUsername = senderProf.username || effectiveSenderId;
         senderAvatarUrl = senderProf.avatar_url;
       }
@@ -386,7 +516,10 @@ export class FriendsService {
     return newRel;
   }
 
-  async acceptFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
+  async acceptFriendRequest(
+    userId: string,
+    friendId: string,
+  ): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
     // Update in-memory
@@ -433,16 +566,23 @@ export class FriendsService {
     }
 
     // Broadcast event
-    this.eventsGateway.sendFriendAcceptedNotification(effectiveUserId, friendId, {
-      userAId: effectiveUserId,
-      userBId: friendId,
-      status: 'friend',
-    });
+    this.eventsGateway.sendFriendAcceptedNotification(
+      effectiveUserId,
+      friendId,
+      {
+        userAId: effectiveUserId,
+        userBId: friendId,
+        status: 'friend',
+      },
+    );
 
     return { success: true };
   }
 
-  async rejectFriendRequest(userId: string, friendId: string): Promise<{ success: boolean }> {
+  async rejectFriendRequest(
+    userId: string,
+    friendId: string,
+  ): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
     this.inMemoryRels = this.inMemoryRels.filter(
@@ -468,7 +608,10 @@ export class FriendsService {
       );
 
       if (targetRel) {
-        await this.supabase.admin.from('friendships').delete().eq('id', targetRel.id);
+        await this.supabase.admin
+          .from('friendships')
+          .delete()
+          .eq('id', targetRel.id);
       }
     } catch {
       // ignore
@@ -477,7 +620,10 @@ export class FriendsService {
     return { success: true };
   }
 
-  async removeFriend(userId: string, friendId: string): Promise<{ success: boolean }> {
+  async removeFriend(
+    userId: string,
+    friendId: string,
+  ): Promise<{ success: boolean }> {
     const effectiveUserId = userId || 'user';
 
     this.inMemoryRels = this.inMemoryRels.filter(
@@ -501,7 +647,10 @@ export class FriendsService {
       );
 
       if (targetRel) {
-        await this.supabase.admin.from('friendships').delete().eq('id', targetRel.id);
+        await this.supabase.admin
+          .from('friendships')
+          .delete()
+          .eq('id', targetRel.id);
       }
     } catch {
       // ignore

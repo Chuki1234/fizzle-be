@@ -1,6 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Headers } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  Headers,
+} from '@nestjs/common';
 import { ServersService } from './servers.service';
-import { CreateChannelDto, CreateServerDto, Server, Channel } from './dto/server.dto';
+import {
+  CreateChannelDto,
+  CreateServerDto,
+  Server,
+  Channel,
+} from './dto/server.dto';
 
 @Controller('servers')
 export class ServersController {
@@ -37,7 +51,10 @@ export class ServersController {
   }
 
   @Post(':id/channels')
-  async addChannel(@Param('id') serverId: string, @Body() dto: CreateChannelDto): Promise<Channel> {
+  async addChannel(
+    @Param('id') serverId: string,
+    @Body() dto: CreateChannelDto,
+  ): Promise<Channel> {
     return this.serversService.addChannel(serverId, dto);
   }
 
@@ -64,7 +81,11 @@ export class ServersController {
     @Headers('x-user-id') headerUserId?: string,
   ): Promise<{ success: boolean }> {
     const inviterId = body.inviterId || userId || headerUserId || 'user';
-    return this.serversService.inviteFriendToServer(serverId, body.friendId, inviterId);
+    return this.serversService.inviteFriendToServer(
+      serverId,
+      body.friendId,
+      inviterId,
+    );
   }
 
   @Post('join/:code')
@@ -78,4 +99,3 @@ export class ServersController {
     return this.serversService.joinServerByCode(code, effectiveUserId);
   }
 }
-

@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -11,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Session, User } from '@supabase/supabase-js';
+import { EmailService } from '../../infra/email/email.service';
 import * as nodemailer from 'nodemailer';
 import type { Env } from '../../config/env.validation';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
@@ -70,10 +70,10 @@ export class AuthService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly config: ConfigService<Env, true>,
+    private readonly emailService: EmailService,
     @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway?: EventsGateway,
   ) {}
-
 
   async register(dto: RegisterDto): Promise<RegisterResultDto> {
     if (!isOldEnough(dto.birthdate)) {
@@ -88,42 +88,105 @@ export class AuthService {
     // does not leave an orphaned account behind.
     await this.assertUsernameAvailable(dto.username);
 
-    // Create user directly via admin client — bypasses Supabase free-tier email rate limit
-    const { data: adminData, error: adminErr } =
-      await this.supabase.admin.auth.admin.createUser({
-        email: dto.email,
+    const normalizedEmail = dto.email.trim().toLowerCase();
+
+    // Use signUp directly — Supabase sends a confirmation email automatically
+    // (requires "Confirm email" to be enabled in Supabase Dashboard > Auth > Providers > Email)
+    const { data: signUpData, error: signUpErr } =
+      await this.supabase.anon.auth.signUp({
+        email: normalizedEmail,
         password: dto.password,
-        email_confirm: true,
-        user_metadata: {
-          displayName: dto.displayName,
-          username: dto.username,
+        options: {
+          data: {
+            displayName: dto.displayName,
+            username: dto.username,
+            phone: dto.phone || undefined,
+          },
         },
       });
 
-    if (adminErr || !adminData?.user) {
+    if (signUpErr || !signUpData?.user) {
       if (
-        adminErr &&
-        /already registered|already exists/i.test(adminErr.message)
+        signUpErr &&
+        /already registered|already exists/i.test(signUpErr.message)
       ) {
         throw new ConflictException({
           code: 'EMAIL_TAKEN',
           message: 'Email này đã được sử dụng.',
         });
       }
-      this.logger.error(`admin createUser failed: ${adminErr?.message}`);
+      this.logger.error(`signUp failed: ${signUpErr?.message}`);
       throw new BadRequestException({
         code: 'REGISTER_FAILED',
-        message: adminErr?.message || 'Không thể tạo tài khoản. Vui lòng thử lại.',
+        message:
+          signUpErr?.message || 'Không thể tạo tài khoản. Vui lòng thử lại.',
       });
     }
 
-    const authUser = adminData.user;
+    if (signUpData.user.identities && signUpData.user.identities.length === 0) {
+      throw new ConflictException({
+        code: 'EMAIL_TAKEN',
+        message: 'Email này đã được sử dụng.',
+      });
+    }
+
+    const authUser = signUpData.user;
     await this.createProfile(authUser.id, dto);
+
+    // Send 6-digit OTP email (via custom SMTP if configured, or trigger Supabase mailer with OTP code like forgot password)
+    if (this.emailService.hasSmtp()) {
+      try {
+        const { data: linkData, error: linkErr } =
+          await this.supabase.admin.auth.admin.generateLink({
+            type: 'recovery',
+            email: normalizedEmail,
+          });
+
+        if (linkErr) {
+          this.logger.warn(
+            `generateLink for ${normalizedEmail} failed: ${linkErr.message}`,
+          );
+        } else {
+          const otpCode = linkData?.properties?.email_otp;
+          if (otpCode) {
+            await this.emailService.sendOtpEmail(
+              normalizedEmail,
+              otpCode,
+              'signup',
+            );
+          }
+        }
+      } catch (e: unknown) {
+        this.logger.error(
+          `Custom OTP email delivery failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    } else {
+      // Default: Trigger Supabase mailer directly to deliver 6-digit OTP code to Gmail (same as forgot password)
+      try {
+        const { error: resetErr } =
+          await this.supabase.anon.auth.resetPasswordForEmail(normalizedEmail);
+        if (resetErr) {
+          this.logger.warn(
+            `Supabase resetPasswordForEmail in register for ${normalizedEmail}: ${resetErr.message}`,
+          );
+        } else {
+          this.logger.log(
+            `✅ Supabase signup 6-digit OTP email dispatched to ${normalizedEmail}`,
+          );
+        }
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Failed to dispatch OTP email: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     return {
       userId: authUser.id,
-      email: dto.email,
-      verificationRequired: false,
+      email: normalizedEmail,
+      phone: dto.phone || undefined,
+      verificationRequired: true,
     };
   }
 
@@ -134,17 +197,21 @@ export class AuthService {
     });
 
     // Auto-seed demo user if missing when attempting demo login
-    if ((error || !data?.session || !data?.user) && dto.email.toLowerCase() === 'dev@fizzle.io') {
+    if (
+      (error || !data?.session || !data?.user) &&
+      dto.email.toLowerCase() === 'dev@fizzle.io'
+    ) {
       try {
-        const { data: adminData } = await this.supabase.admin.auth.admin.createUser({
-          email: 'dev@fizzle.io',
-          password: 'Password123!',
-          email_confirm: true,
-          user_metadata: {
-            displayName: 'Thiện Phúc',
-            username: 'thienphuc',
-          },
-        });
+        const { data: adminData } =
+          await this.supabase.admin.auth.admin.createUser({
+            email: 'dev@fizzle.io',
+            password: 'Password123!',
+            email_confirm: true,
+            user_metadata: {
+              displayName: 'Thiện Phúc',
+              username: 'thienphuc',
+            },
+          });
         if (adminData?.user) {
           try {
             await this.createProfile(adminData.user.id, {
@@ -155,7 +222,9 @@ export class AuthService {
               birthdate: '2000-01-01',
               acceptsMarketingEmail: false,
             });
-          } catch {}
+          } catch {
+            // Profile may already exist
+          }
         }
 
         const retry = await this.supabase.anon.auth.signInWithPassword({
@@ -187,13 +256,59 @@ export class AuthService {
   }
 
   async verifyOtp(email: string, code: string): Promise<AuthSessionAndRefresh> {
-    const { data, error } = await this.supabase.anon.auth.verifyOtp({
-      email,
-      token: code,
-      type: 'signup',
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = code.trim();
+
+    // 1. Try 'recovery' type first (matches resetPasswordForEmail 6-digit OTP code)
+    let { data, error } = await this.supabase.anon.auth.verifyOtp({
+      email: normalizedEmail,
+      token: normalizedCode,
+      type: 'recovery',
     });
 
-    if (error || !data.session || !data.user) {
+    // 2. Fallback to 'email' type
+    if ((error || !data?.session) && normalizedEmail) {
+      const emailRes = await this.supabase.anon.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedCode,
+        type: 'email',
+      });
+      if (!emailRes.error && emailRes.data?.session) {
+        data = emailRes.data;
+        error = null;
+      }
+    }
+
+    // 3. Fallback to 'signup' type
+    if ((error || !data?.session) && normalizedEmail) {
+      const signupRes = await this.supabase.anon.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedCode,
+        type: 'signup',
+      });
+      if (!signupRes.error && signupRes.data?.session) {
+        data = signupRes.data;
+        error = null;
+      }
+    }
+
+    // 4. Fallback to 'magiclink' type
+    if ((error || !data?.session) && normalizedEmail) {
+      const magicRes = await this.supabase.anon.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedCode,
+        type: 'magiclink',
+      });
+      if (!magicRes.error && magicRes.data?.session) {
+        data = magicRes.data;
+        error = null;
+      }
+    }
+
+    if (error || !data?.session || !data?.user) {
+      this.logger.warn(
+        `verifyOtp failed for ${normalizedEmail}: ${error?.message}`,
+      );
       throw otpError(error?.message);
     }
 
@@ -201,16 +316,45 @@ export class AuthService {
   }
 
   async resendOtp(email: string): Promise<void> {
-    const { error } = await this.supabase.anon.auth.resend({
-      type: 'signup',
-      email,
-    });
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (error) {
-      this.logger.warn(`resend OTP failed for ${email}: ${error.message}`);
+    // 1. Custom SMTP if configured
+    if (this.emailService.hasSmtp()) {
+      try {
+        const { data, error } =
+          await this.supabase.admin.auth.admin.generateLink({
+            type: 'recovery',
+            email: normalizedEmail,
+          });
+
+        if (!error && data?.properties?.email_otp) {
+          await this.emailService.sendOtpEmail(
+            normalizedEmail,
+            data.properties.email_otp,
+            'signup',
+          );
+          return;
+        }
+      } catch (e: unknown) {
+        this.logger.warn(
+          `Custom SMTP resend error: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
-    // Always resolve: telling the caller whether the address exists would leak
-    // account existence to anyone who can hit this endpoint.
+
+    // 2. Default: Trigger Supabase mailer directly to deliver 6-digit OTP code to Gmail (same as forgot password)
+    const { error: resetErr } =
+      await this.supabase.anon.auth.resetPasswordForEmail(normalizedEmail);
+
+    if (resetErr) {
+      this.logger.warn(
+        `Supabase resetPasswordForEmail in resend failed for ${normalizedEmail}: ${resetErr.message}`,
+      );
+    } else {
+      this.logger.log(
+        `✅ Supabase 6-digit OTP resend email dispatched to ${normalizedEmail}`,
+      );
+    }
   }
 
   /**
@@ -219,10 +363,44 @@ export class AuthService {
    * for which addresses are registered.
    */
   async forgotPassword(email: string): Promise<void> {
-    const { error } = await this.supabase.anon.auth.resetPasswordForEmail(email);
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (error) {
-      this.logger.warn(`reset email failed for ${email}: ${error.message}`);
+    // 1. Custom SMTP if configured
+    if (this.emailService.hasSmtp()) {
+      try {
+        const { data, error } =
+          await this.supabase.admin.auth.admin.generateLink({
+            type: 'recovery',
+            email: normalizedEmail,
+          });
+
+        if (!error && data?.properties?.email_otp) {
+          await this.emailService.sendOtpEmail(
+            normalizedEmail,
+            data.properties.email_otp,
+            'recovery',
+          );
+          return;
+        }
+      } catch (e: unknown) {
+        this.logger.debug(
+          `Custom SMTP recovery skipped: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+
+    // 2. Default: Trigger Supabase to send password reset email with OTP directly to inbox
+    const { error: resetErr } =
+      await this.supabase.anon.auth.resetPasswordForEmail(normalizedEmail);
+
+    if (resetErr) {
+      this.logger.warn(
+        `Supabase resetPasswordForEmail failed for ${normalizedEmail}: ${resetErr.message}`,
+      );
+    } else {
+      this.logger.log(
+        `✅ Password reset email dispatched via Supabase to ${normalizedEmail}`,
+      );
     }
   }
 
@@ -238,13 +416,43 @@ export class AuthService {
     email: string,
     code: string,
   ): Promise<{ resetToken: string; expiresIn: number }> {
-    const { data, error } = await this.supabase.anon.auth.verifyOtp({
-      email,
-      token: code,
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = code.trim();
+
+    let { data, error } = await this.supabase.anon.auth.verifyOtp({
+      email: normalizedEmail,
+      token: normalizedCode,
       type: 'recovery',
     });
 
-    if (error || !data.session || !data.user) {
+    if ((error || !data?.session) && normalizedEmail) {
+      const emailRes = await this.supabase.anon.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedCode,
+        type: 'email',
+      });
+      if (!emailRes.error && emailRes.data?.session) {
+        data = emailRes.data;
+        error = null;
+      }
+    }
+
+    if ((error || !data?.session) && normalizedEmail) {
+      const magicRes = await this.supabase.anon.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedCode,
+        type: 'magiclink',
+      });
+      if (!magicRes.error && magicRes.data?.session) {
+        data = magicRes.data;
+        error = null;
+      }
+    }
+
+    if (error || !data?.session || !data?.user) {
+      this.logger.warn(
+        `verifyResetCode failed for ${normalizedEmail} with code ${normalizedCode}: ${error?.message || 'No session returned'}`,
+      );
       throw otpError(error?.message);
     }
 
@@ -368,7 +576,11 @@ export class AuthService {
     }
 
     const profile = await this.loadProfile(data.user.id);
-    return toUserDto(profile, data.user.email ?? '', !!data.user.email_confirmed_at);
+    return toUserDto(
+      profile,
+      data.user.email ?? '',
+      !!data.user.email_confirmed_at,
+    );
   }
 
   async updateProfile(
@@ -396,10 +608,16 @@ export class AuthService {
       updates.two_factor_enabled = dto.twoFactorEnabled;
 
     // Handle extended metadata packed inside status_message as JSON
-    let meta: Record<string, any> = {};
-    if (currentProfile.status_message && currentProfile.status_message.startsWith('{')) {
+    let meta: Record<string, unknown> = {};
+    if (
+      currentProfile.status_message &&
+      currentProfile.status_message.startsWith('{')
+    ) {
       try {
-        meta = JSON.parse(currentProfile.status_message);
+        meta = JSON.parse(currentProfile.status_message) as Record<
+          string,
+          unknown
+        >;
       } catch {
         meta = { statusMessage: currentProfile.status_message };
       }
@@ -463,7 +681,9 @@ export class AuthService {
           message: 'Tên đăng nhập này đã có người dùng.',
         });
       }
-      this.logger.error(`profile update failed for ${userId}: ${error?.message}`);
+      this.logger.error(
+        `profile update failed for ${userId}: ${error?.message}`,
+      );
       throw new InternalServerErrorException({
         code: 'PROFILE_UPDATE_FAILED',
         message: 'Không thể cập nhật hồ sơ người dùng.',
@@ -482,10 +702,11 @@ export class AuthService {
     currentEmail: string,
     dto: ChangePasswordDto,
   ): Promise<void> {
-    const { error: signError } = await this.supabase.anon.auth.signInWithPassword({
-      email: currentEmail,
-      password: dto.currentPassword,
-    });
+    const { error: signError } =
+      await this.supabase.anon.auth.signInWithPassword({
+        email: currentEmail,
+        password: dto.currentPassword,
+      });
 
     if (signError) {
       throw new UnauthorizedException({
@@ -503,7 +724,9 @@ export class AuthService {
       });
 
     if (updateError) {
-      this.logger.error(`changePassword failed for ${userId}: ${updateError.message}`);
+      this.logger.error(
+        `changePassword failed for ${userId}: ${updateError.message}`,
+      );
       throw new InternalServerErrorException({
         code: 'PASSWORD_UPDATE_FAILED',
         message: 'Không thể đổi mật khẩu. Vui lòng thử lại.',
@@ -554,17 +777,19 @@ export class AuthService {
       .update({ username: newUnameClean, updated_at: new Date().toISOString() })
       .eq('id', userId)
       .select()
-      .single();
+      .single<ProfileRow>();
 
     if (updateErr) {
-      this.logger.error(`changeUsername failed for ${userId}: ${updateErr.message}`);
+      this.logger.error(
+        `changeUsername failed for ${userId}: ${updateErr.message}`,
+      );
       throw new InternalServerErrorException({
         code: 'USERNAME_UPDATE_FAILED',
         message: 'Không thể cập nhật Username. Vui lòng thử lại.',
       });
     }
 
-    return toUserDto(updated as ProfileRow, currentEmail, true);
+    return toUserDto(updated, currentEmail, true);
   }
 
   async requestEmailChange(
@@ -598,9 +823,11 @@ export class AuthService {
     }
 
     try {
-      const { data: usersData } = await this.supabase.admin.auth.admin.listUsers();
+      const { data: usersData } =
+        await this.supabase.admin.auth.admin.listUsers();
       const taken = usersData?.users?.some(
-        (u: User) => u.id !== userId && u.email?.trim().toLowerCase() === newEmailClean,
+        (u: User) =>
+          u.id !== userId && u.email?.trim().toLowerCase() === newEmailClean,
       );
 
       if (taken) {
@@ -610,7 +837,10 @@ export class AuthService {
         });
       }
     } catch (err) {
-      if (err instanceof BadRequestException || err instanceof ConflictException) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ConflictException
+      ) {
         throw err;
       }
       this.logger.warn(`listUsers check skipped: ${err}`);
@@ -629,13 +859,18 @@ export class AuthService {
     const rawPass = this.config.get('SMTP_PASS', { infer: true });
     const smtpUser = rawUser ? rawUser.trim() : '';
     const smtpPass = rawPass ? rawPass.trim().replace(/\s+/g, '') : '';
-    const smtpHost = (this.config.get('SMTP_HOST', { infer: true }) || 'smtp.gmail.com').trim();
-    const smtpPort = Number(this.config.get('SMTP_PORT', { infer: true })) || 587;
+    const smtpHost = (
+      this.config.get('SMTP_HOST', { infer: true }) || 'smtp.gmail.com'
+    ).trim();
+    const smtpPort =
+      Number(this.config.get('SMTP_PORT', { infer: true })) || 587;
     const smtpFrom =
       (this.config.get('SMTP_FROM', { infer: true }) || '').trim() ||
       `Fizzle Security <${smtpUser || 'no-reply@fizzle.app'}>`;
 
-    this.logger.log(`[OTP GENERATED] Mã OTP tạo cho ${targetEmail}: ${otpCode}`);
+    this.logger.log(
+      `[OTP GENERATED] Mã OTP tạo cho ${targetEmail}: ${otpCode}`,
+    );
 
     if (smtpUser && smtpPass) {
       try {
@@ -662,9 +897,13 @@ export class AuthService {
             </div>
           `,
         });
-        this.logger.log(`[EMAIL SENT SUCCESS] Đã gửi thư OTP đến: ${targetEmail}`);
-      } catch (err: any) {
-        this.logger.error(`[SMTP ERROR] Không thể gửi email OTP: ${err?.message}`);
+        this.logger.log(
+          `[EMAIL SENT SUCCESS] Đã gửi thư OTP đến: ${targetEmail}`,
+        );
+      } catch (err: unknown) {
+        this.logger.error(
+          `[SMTP ERROR] Không thể gửi email OTP: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     } else {
       this.logger.log(
@@ -684,7 +923,8 @@ export class AuthService {
     dto: VerifyEmailChangeDto,
   ): Promise<UserDto> {
     const pending = this.pendingEmailChanges.get(userId);
-    const fallbackOtp = this.config.get('EMAIL_CHANGE_OTP', { infer: true }) || '123456';
+    const fallbackOtp =
+      this.config.get('EMAIL_CHANGE_OTP', { infer: true }) || '123456';
     const inputCode = dto.code.trim();
 
     if (pending && Date.now() > pending.expiresAt) {
@@ -706,16 +946,16 @@ export class AuthService {
 
     const targetEmail = pending?.newEmail || dto.newEmail;
 
-    const { error: updateError } = await this.supabase.admin.auth.admin.updateUserById(
-      userId,
-      {
+    const { error: updateError } =
+      await this.supabase.admin.auth.admin.updateUserById(userId, {
         email: targetEmail,
         email_confirm: true,
-      },
-    );
+      });
 
     if (updateError) {
-      this.logger.error(`email update failed for ${userId}: ${updateError.message}`);
+      this.logger.error(
+        `email update failed for ${userId}: ${updateError.message}`,
+      );
       throw new InternalServerErrorException({
         code: 'EMAIL_UPDATE_FAILED',
         message: 'Không thể đổi email. Vui lòng thử lại sau.',
@@ -779,7 +1019,7 @@ export class AuthService {
   }
 
   private async loadProfile(userId: string): Promise<ProfileRow> {
-    const { data, error } = await this.supabase.admin
+    const { data } = await this.supabase.admin
       .from('profiles')
       .select('*')
       .eq('id', userId)
@@ -811,7 +1051,9 @@ export class AuthService {
         .select()
         .single<ProfileRow>();
       if (created) return created;
-    } catch {}
+    } catch {
+      // Fallback in case insert fails
+    }
 
     return fallbackProfile;
   }

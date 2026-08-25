@@ -51,7 +51,8 @@ function toBody(exception: HttpException): ErrorBody {
   ) {
     return {
       code: 'TOO_MANY_REQUESTS',
-      message: 'Bạn đã gửi quá nhiều yêu cầu liên tục. Vui lòng thử lại sau 1 phút.',
+      message:
+        'Bạn đã gửi quá nhiều yêu cầu liên tục. Vui lòng thử lại sau 1 phút.',
     };
   }
 
