@@ -184,6 +184,9 @@ export class EventsGateway
       user: participant,
     });
 
+    // 3. Broadcast global voice channels state to ALL clients (for sidebar live member list)
+    this.broadcastVoiceChannelsState();
+
     this.logger.log(
       `User ${data.userId} (${client.id}) joined voice channel: ${channelId}`,
     );
@@ -216,6 +219,10 @@ export class EventsGateway
 
     void client.leave(roomKey);
     this.socketVoiceChannel.delete(client.id);
+
+    // Broadcast global voice channels state to ALL clients
+    this.broadcastVoiceChannelsState();
+
     this.logger.log(`Socket ${client.id} left voice channel ${channelId}`);
   }
 
@@ -272,6 +279,26 @@ export class EventsGateway
       isDeafened: participant.isDeafened,
       isSpeaking: participant.isSpeaking,
     });
+
+    // Also update global channels state for sidebar speaking glow & mute icon
+    this.broadcastVoiceChannelsState();
+  }
+
+  @SubscribeMessage('request_voice_states')
+  handleRequestVoiceStates(@ConnectedSocket() client: Socket) {
+    client.emit('voice_channels_state_update', this.getAllVoiceRoomsState());
+  }
+
+  private getAllVoiceRoomsState(): Record<string, VoiceParticipant[]> {
+    const result: Record<string, VoiceParticipant[]> = {};
+    for (const [chId, map] of this.voiceRooms.entries()) {
+      result[chId] = Array.from(map.values());
+    }
+    return result;
+  }
+
+  private broadcastVoiceChannelsState() {
+    this.server.emit('voice_channels_state_update', this.getAllVoiceRoomsState());
   }
 
   private registerUserSocket(userId: string, socketId: string) {
