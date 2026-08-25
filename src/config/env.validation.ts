@@ -31,6 +31,11 @@ export const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+
+  /** LiveKit Cloud SFU */
+  LIVEKIT_URL: z.string().default('wss://fizzle-mgyvvhtb.livekit.cloud'),
+  LIVEKIT_API_KEY: z.string().default(''),
+  LIVEKIT_API_SECRET: z.string().default(''),
   SMTP_SECURE: z.coerce.boolean().optional(),
 });
 
