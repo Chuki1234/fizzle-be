@@ -1,3 +1,11 @@
+export interface MessageAttachment {
+  url: string;
+  name: string;
+  size?: number;
+  mimeType?: string;
+  type?: 'image' | 'video' | 'audio' | 'file';
+}
+
 export class ChatMessage {
   id!: string;
   senderId!: string;
@@ -6,6 +14,10 @@ export class ChatMessage {
   avatarUrl?: string | null;
   text!: string;
   timestamp!: string;
+  type?: 'text' | 'image' | 'gif' | 'sticker' | 'file' | 'video' | 'audio';
+  attachments?: MessageAttachment[];
+  mediaUrl?: string | null;
+  metadata?: Record<string, any> | null;
 }
 
 export class CreateMessageDto {
@@ -14,4 +26,9 @@ export class CreateMessageDto {
   senderName?: string;
   senderAvatarUrl?: string | null;
   avatarUrl?: string | null;
+  type?: 'text' | 'image' | 'gif' | 'sticker' | 'file' | 'video' | 'audio';
+  attachments?: MessageAttachment[];
+  mediaUrl?: string | null;
+  metadata?: Record<string, any> | null;
 }
+

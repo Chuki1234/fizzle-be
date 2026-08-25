@@ -3,6 +3,50 @@ import { ChatMessage, CreateMessageDto } from './dto/message.dto';
 import { EventsGateway } from '../events/events.gateway';
 import { SupabaseService } from '../../infra/supabase/supabase.service';
 
+function serializeMessageContent(dto: CreateMessageDto): string {
+  if (
+    dto.attachments?.length ||
+    dto.mediaUrl ||
+    (dto.type && dto.type !== 'text') ||
+    dto.metadata
+  ) {
+    return JSON.stringify({
+      __isRichMessage: true,
+      text: dto.text || '',
+      type: dto.type || 'text',
+      mediaUrl: dto.mediaUrl || null,
+      attachments: dto.attachments || [],
+      metadata: dto.metadata || null,
+    });
+  }
+  return dto.text || '';
+}
+
+function parseMessageContent(rawText: string): {
+  text: string;
+  type?: 'text' | 'image' | 'gif' | 'sticker' | 'file' | 'video' | 'audio';
+  mediaUrl?: string | null;
+  attachments?: any[];
+  metadata?: any;
+} {
+  if (!rawText) return { text: '' };
+  if (rawText.startsWith('{"__isRichMessage":true') || rawText.includes('"__isRichMessage":true')) {
+    try {
+      const parsed = JSON.parse(rawText);
+      return {
+        text: parsed.text || '',
+        type: parsed.type || 'text',
+        mediaUrl: parsed.mediaUrl || null,
+        attachments: parsed.attachments || [],
+        metadata: parsed.metadata || null,
+      };
+    } catch {
+      return { text: rawText };
+    }
+  }
+  return { text: rawText };
+}
+
 @Injectable()
 export class MessagesService {
   constructor(
@@ -22,16 +66,23 @@ export class MessagesService {
         .order('created_at', { ascending: true });
 
       if (!error && data) {
-        const msgs: ChatMessage[] = data.map((m) => ({
-          id: m.id,
-          senderId: m.sender_id,
-          senderName: m.sender_name || 'Người dùng',
-          text: m.text,
-          timestamp: new Date(m.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        }));
+        const msgs: ChatMessage[] = data.map((m) => {
+          const parsed = parseMessageContent(m.text);
+          return {
+            id: m.id,
+            senderId: m.sender_id,
+            senderName: m.sender_name || 'Người dùng',
+            text: parsed.text,
+            type: parsed.type,
+            mediaUrl: parsed.mediaUrl,
+            attachments: parsed.attachments,
+            metadata: parsed.metadata,
+            timestamp: new Date(m.created_at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          };
+        });
         return msgs;
       }
     } catch (e) {
@@ -55,7 +106,11 @@ export class MessagesService {
       senderName: dto.senderName || 'Người dùng',
       senderAvatarUrl: avatarUrl,
       avatarUrl,
-      text: dto.text.trim(),
+      text: (dto.text || '').trim(),
+      type: dto.type || 'text',
+      attachments: dto.attachments || [],
+      mediaUrl: dto.mediaUrl || null,
+      metadata: dto.metadata || null,
       timestamp: new Date().toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
@@ -86,13 +141,14 @@ export class MessagesService {
 
     // 1. Try insert into Supabase DB
     try {
+      const dbText = serializeMessageContent(dto);
       await this.supabase.admin.from('channel_messages').insert({
         id,
         channel_id: channelId,
         sender_id:
           dto.senderId && dto.senderId !== 'user' ? dto.senderId : null,
         sender_name: message.senderName,
-        text: message.text,
+        text: dbText,
         created_at: createdAt,
       });
     } catch (e) {
@@ -142,16 +198,23 @@ export class MessagesService {
             )
           : data;
 
-        const msgs: ChatMessage[] = filtered.map((m) => ({
-          id: m.id,
-          senderId: m.sender_id,
-          senderName: m.sender_name || 'Người dùng',
-          text: m.text,
-          timestamp: new Date(m.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        }));
+        const msgs: ChatMessage[] = filtered.map((m) => {
+          const parsed = parseMessageContent(m.text);
+          return {
+            id: m.id,
+            senderId: m.sender_id,
+            senderName: m.sender_name || 'Người dùng',
+            text: parsed.text,
+            type: parsed.type,
+            mediaUrl: parsed.mediaUrl,
+            attachments: parsed.attachments,
+            metadata: parsed.metadata,
+            timestamp: new Date(m.created_at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          };
+        });
         return msgs;
       }
     } catch (e) {
@@ -175,7 +238,11 @@ export class MessagesService {
       senderName: dto.senderName || 'Người dùng',
       senderAvatarUrl: avatarUrl,
       avatarUrl,
-      text: dto.text.trim(),
+      text: (dto.text || '').trim(),
+      type: dto.type || 'text',
+      attachments: dto.attachments || [],
+      mediaUrl: dto.mediaUrl || null,
+      metadata: dto.metadata || null,
       timestamp: new Date().toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
@@ -206,6 +273,7 @@ export class MessagesService {
 
     // 1. Try insert into Supabase DB
     try {
+      const dbText = serializeMessageContent(dto);
       const { error } = await this.supabase.admin
         .from('direct_messages')
         .insert({
@@ -213,7 +281,7 @@ export class MessagesService {
           sender_id: senderId,
           recipient_id: friendId,
           sender_name: message.senderName,
-          text: message.text,
+          text: dbText,
           created_at: createdAt,
         });
       if (error) {
@@ -233,3 +301,4 @@ export class MessagesService {
     return message;
   }
 }
+
