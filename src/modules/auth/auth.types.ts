@@ -39,6 +39,7 @@ export interface AuthSessionDto {
 export interface RegisterResultDto {
   userId: string;
   email: string;
+  phone?: string;
   verificationRequired: boolean;
 }
 

@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ConfigModule } from './config/config.module';
+import { EmailModule } from './infra/email/email.module';
 import { SupabaseModule } from './infra/supabase/supabase.module';
 import { AuthModule } from './modules/auth/auth.module';
 
@@ -12,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module';
   imports: [
     ConfigModule,
     SupabaseModule,
+    EmailModule,
     // Baseline limit for every route; auth endpoints tighten it with @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
     AuthModule,

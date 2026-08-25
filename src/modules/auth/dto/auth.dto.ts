@@ -47,6 +47,11 @@ export const registerSchema = z.object({
       error: 'Chỉ dùng chữ thường, số, dấu chấm và gạch dưới.',
     }),
   password: passwordField,
+  phone: z
+    .string()
+    .regex(/^(\+84|0)[3-9][0-9]{8}$/, { error: 'Số điện thoại không hợp lệ.' })
+    .optional()
+    .or(z.literal('')),
   birthdate: z.iso.date({ error: 'Ngày sinh không hợp lệ.' }),
   acceptsMarketingEmail: z.boolean().default(false),
 });
