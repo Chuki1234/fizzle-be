@@ -382,6 +382,91 @@ export class EventsGateway
     this.server.emit('server_updated', serverData);
   }
 
+  // --- Typing indicator handlers ---
+
+  @SubscribeMessage('channel_typing')
+  handleChannelTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      channelId: string;
+      userId: string;
+      displayName: string;
+      isTyping: boolean;
+    },
+  ) {
+    if (!data?.channelId) return;
+    this.server
+      .to(`channel:${data.channelId}`)
+      .to(data.channelId)
+      .emit('channel_typing', data);
+    this.server.emit('channel_typing', data);
+  }
+
+  @SubscribeMessage('dm_typing')
+  handleDmTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      recipientId: string;
+      userId: string;
+      displayName: string;
+      isTyping: boolean;
+    },
+  ) {
+    if (!data?.recipientId) return;
+    this.server.to(`user:${data.recipientId}`).emit('dm_typing', data);
+    this.server.to(`user:${data.userId}`).emit('dm_typing', data);
+  }
+
+  // --- Message Reaction Broadcasts ---
+
+  broadcastChannelReaction(
+    channelId: string,
+    messageId: string,
+    reactions: Record<string, string[]>,
+  ) {
+    const payload = { channelId, messageId, reactions };
+    this.server
+      .to(`channel:${channelId}`)
+      .to(channelId)
+      .emit('channel_message_reaction', payload);
+    this.server.emit('channel_message_reaction', payload);
+  }
+
+  sendDirectReaction(
+    senderId: string,
+    recipientId: string,
+    messageId: string,
+    reactions: Record<string, string[]>,
+  ) {
+    const payload = { senderId, recipientId, messageId, reactions };
+    this.server.to(`user:${senderId}`).emit('direct_message_reaction', payload);
+    this.server.to(`user:${recipientId}`).emit('direct_message_reaction', payload);
+    this.server.emit('direct_message_reaction', payload);
+  }
+
+  // --- Message Delete Broadcasts ---
+
+  broadcastChannelMessageDeleted(channelId: string, messageId: string) {
+    this.server
+      .to(`channel:${channelId}`)
+      .to(channelId)
+      .emit('channel_message_deleted', { channelId, messageId });
+    this.server.emit('channel_message_deleted', { channelId, messageId });
+  }
+
+  sendDirectMessageDeleted(
+    senderId: string,
+    recipientId: string,
+    messageId: string,
+  ) {
+    const payload = { senderId, recipientId, friendId: senderId, messageId };
+    this.server.to(`user:${senderId}`).emit('direct_message_deleted', payload);
+    this.server.to(`user:${recipientId}`).emit('direct_message_deleted', payload);
+    this.server.emit('direct_message_deleted', payload);
+  }
+
   broadcastUserStatusUpdate(userId: string, userDto: any) {
     if (!userDto) return;
 
