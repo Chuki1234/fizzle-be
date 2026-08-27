@@ -21,10 +21,26 @@ export class Channel {
   unreadCount?: number;
 }
 
+export class ServerMember {
+  userId!: string;
+  username!: string;
+  displayName!: string;
+  avatarUrl!: string | null;
+  presence?: string;
+  role!: 'owner' | 'admin' | 'moderator' | 'member';
+  joinedAt?: string;
+}
+
+export class UpdateMemberRoleDto {
+  role!: 'admin' | 'moderator' | 'member';
+}
+
 export class Server {
   id!: string;
   name!: string;
   icon!: string;
   channels!: Channel[];
   members?: string[];
+  creatorId?: string;
 }
+

@@ -8,6 +8,8 @@ import {
   CreateChannelDto,
   CreateServerDto,
   UpdateServerDto,
+  ServerMember,
+  UpdateMemberRoleDto,
   Server,
   Channel,
 } from './dto/server.dto';
@@ -45,7 +47,7 @@ export class ServersService {
         const mapped: Server[] = dbServers.map((s) => ({
           id: s.id,
           name: s.name,
-          icon: s.icon || '🔥',
+          icon: s.icon || (s.name ? s.name.charAt(0).toUpperCase() : 'S'),
           channels: (s.channels || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -91,7 +93,7 @@ export class ServersService {
         const mapped: Server[] = dbServers.map((s) => ({
           id: s.id,
           name: s.name,
-          icon: s.icon || '🔥',
+          icon: s.icon || (s.name ? s.name.charAt(0).toUpperCase() : 'S'),
           channels: (s.channels || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -133,7 +135,7 @@ export class ServersService {
         return {
           id: s.id,
           name: s.name,
-          icon: s.icon || '🔥',
+          icon: s.icon || (s.name ? s.name.charAt(0).toUpperCase() : 'S'),
           channels: (s.channels || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -160,10 +162,13 @@ export class ServersService {
     const creatorId =
       dto.creatorId && dto.creatorId !== 'user' ? dto.creatorId : null;
 
+    const defaultIcon = dto.name.trim().charAt(0).toUpperCase() || 'S';
+    const serverIcon = (dto.icon && dto.icon.trim() && dto.icon.trim() !== '🔥') ? dto.icon.trim() : defaultIcon;
+
     const newServer: Server = {
       id: newServerId,
       name: dto.name.trim(),
-      icon: (dto.icon && dto.icon.trim()) || '🔥',
+      icon: serverIcon,
       channels: [
         { id: defaultTextChannelId, name: 'thảo-luận-chung', type: 'text' },
         { id: defaultVoiceChannelId, name: 'Phòng Chờ 🎙️', type: 'voice' },
@@ -324,7 +329,7 @@ export class ServersService {
       server = this.memoryServers.find((s) => s.id === serverId) || {
         id: serverId,
         name: 'Máy chủ Fizzle',
-        icon: '🔥',
+        icon: 'F',
         channels: [],
         members: [],
       };
@@ -498,5 +503,139 @@ export class ServersService {
 
     return { success: true };
   }
+
+  async getServerMembers(serverId: string): Promise<ServerMember[]> {
+    try {
+      const { data: serverRow } = await this.supabase.admin
+        .from('servers')
+        .select('creator_id')
+        .eq('id', serverId)
+        .single();
+      const creatorId = serverRow?.creator_id;
+
+      const { data: memberRows, error } = await this.supabase.admin
+        .from('server_members')
+        .select('*')
+        .eq('server_id', serverId);
+
+      if (!error && memberRows && memberRows.length > 0) {
+        const userIds = memberRows.map((r) => r.user_id);
+        const roleMap = new Map<string, 'owner' | 'admin' | 'moderator' | 'member'>();
+        for (const r of memberRows) {
+          let role = r.role || 'member';
+          if (r.user_id === creatorId) role = 'owner';
+          roleMap.set(r.user_id, role);
+        }
+
+        const { data: profiles } = await this.supabase.admin
+          .from('profiles')
+          .select('*')
+          .in('id', userIds);
+
+        const profileMap = new Map<string, any>();
+        if (profiles) {
+          for (const p of profiles) {
+            profileMap.set(p.id, p);
+          }
+        }
+
+        const result: ServerMember[] = [];
+        for (const uid of userIds) {
+          const p = profileMap.get(uid);
+          const role = roleMap.get(uid) || (uid === creatorId ? 'owner' : 'member');
+          result.push({
+            userId: uid,
+            username: p?.username || uid,
+            displayName: p?.display_name || p?.username || uid,
+            avatarUrl: p?.avatar_url || null,
+            presence: p?.presence || 'offline',
+            role: role as any,
+            joinedAt: p?.created_at,
+          });
+        }
+
+        return result;
+      }
+    } catch (e) {
+      console.warn('Supabase getServerMembers failed, using fallback:', e);
+    }
+
+    const memoryServer = this.memoryServers.find((s) => s.id === serverId);
+    if (!memoryServer) return [];
+
+    const memberIds = memoryServer.members || ['user'];
+    return memberIds.map((uid) => ({
+      userId: uid,
+      username: uid,
+      displayName: uid === 'user' ? 'Bạn' : uid,
+      avatarUrl: null,
+      presence: 'online',
+      role: uid === 'user' || uid === memoryServer.creatorId ? 'owner' : 'member',
+    }));
+  }
+
+  async updateMemberRole(
+    serverId: string,
+    targetUserId: string,
+    dto: UpdateMemberRoleDto,
+    requestingUserId?: string,
+  ): Promise<{ success: boolean; role: string }> {
+    try {
+      await this.supabase.admin
+        .from('server_members')
+        .upsert({
+          server_id: serverId,
+          user_id: targetUserId,
+          role: dto.role,
+        });
+    } catch (e) {
+      console.warn('Supabase updateMemberRole failed:', e);
+    }
+
+    try {
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'SERVER_UPDATED',
+        serverId,
+      });
+    } catch {
+      // ignore
+    }
+
+    return { success: true, role: dto.role };
+  }
+
+  async removeMember(
+    serverId: string,
+    targetUserId: string,
+    requestingUserId?: string,
+  ): Promise<{ success: boolean }> {
+    try {
+      await this.supabase.admin
+        .from('server_members')
+        .delete()
+        .eq('server_id', serverId)
+        .eq('user_id', targetUserId);
+    } catch (e) {
+      console.warn('Supabase removeMember failed:', e);
+    }
+
+    const memoryServer = this.memoryServers.find((s) => s.id === serverId);
+    if (memoryServer && memoryServer.members) {
+      memoryServer.members = memoryServer.members.filter((m) => m !== targetUserId);
+    }
+
+    try {
+      this.eventsGateway.broadcastServerUpdate({
+        type: 'MEMBER_REMOVED',
+        serverId,
+        userId: targetUserId,
+      });
+    } catch {
+      // ignore
+    }
+
+    return { success: true };
+  }
 }
+
 
