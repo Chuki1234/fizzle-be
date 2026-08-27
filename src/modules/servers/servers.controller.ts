@@ -14,6 +14,8 @@ import {
   CreateChannelDto,
   CreateServerDto,
   UpdateServerDto,
+  ServerMember,
+  UpdateMemberRoleDto,
   Server,
   Channel,
 } from './dto/server.dto';
@@ -109,6 +111,41 @@ export class ServersController {
     @Headers('x-user-id') headerUserId?: string,
   ): Promise<Server> {
     return this.serversService.updateServer(id, dto);
+  }
+
+  @Get(':id/members')
+  async getServerMembers(
+    @Param('id') serverId: string,
+  ): Promise<ServerMember[]> {
+    return this.serversService.getServerMembers(serverId);
+  }
+
+  @Patch(':id/members/:userId/role')
+  async updateMemberRole(
+    @Param('id') serverId: string,
+    @Param('userId') targetUserId: string,
+    @Body() dto: UpdateMemberRoleDto,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<{ success: boolean; role: string }> {
+    return this.serversService.updateMemberRole(
+      serverId,
+      targetUserId,
+      dto,
+      headerUserId,
+    );
+  }
+
+  @Delete(':id/members/:userId')
+  async removeMember(
+    @Param('id') serverId: string,
+    @Param('userId') targetUserId: string,
+    @Headers('x-user-id') headerUserId?: string,
+  ): Promise<{ success: boolean }> {
+    return this.serversService.removeMember(
+      serverId,
+      targetUserId,
+      headerUserId,
+    );
   }
 
   @Delete(':id')
