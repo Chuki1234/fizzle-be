@@ -9,7 +9,13 @@ export class LiveKitService {
 
   constructor(private readonly config: ConfigService<Env, true>) {}
 
-  async generateToken(roomName: string, participantIdentity: string, participantName?: string): Promise<string> {
+  async generateToken(
+    roomName: string,
+    participantIdentity: string,
+    participantName?: string,
+    username?: string,
+    avatarUrl?: string | null,
+  ): Promise<string> {
     const apiKey =
       this.config.get('LIVEKIT_API_KEY', { infer: true }) ||
       process.env.LIVEKIT_API_KEY ||
@@ -23,9 +29,17 @@ export class LiveKitService {
       throw new Error('LiveKit API Key or Secret is not configured in .env');
     }
 
+    const metadataObj = {
+      userId: participantIdentity,
+      displayName: participantName || participantIdentity,
+      username: username || participantName || participantIdentity,
+      avatarUrl: avatarUrl || null,
+    };
+
     const at = new AccessToken(apiKey, apiSecret, {
       identity: participantIdentity,
       name: participantName || participantIdentity,
+      metadata: JSON.stringify(metadataObj),
     });
 
     at.addGrant({
@@ -37,7 +51,10 @@ export class LiveKitService {
     });
 
     const token = await at.toJwt();
-    this.logger.log(`Generated LiveKit token for user: ${participantIdentity} in room: ${roomName}`);
+    this.logger.log(
+      `Generated LiveKit token for user: ${participantIdentity} in room: ${roomName}`,
+    );
     return token;
   }
 }
+
