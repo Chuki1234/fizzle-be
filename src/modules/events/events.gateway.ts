@@ -8,8 +8,9 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { SupabaseService } from '../../infra/supabase/supabase.service';
 
 export interface VoiceParticipant {
   socketId: string;
@@ -37,6 +38,9 @@ export class EventsGateway
   server!: Server;
 
   private readonly logger = new Logger(EventsGateway.name);
+
+  constructor(@Optional() private readonly supabase?: SupabaseService) {}
+
   // Map userId -> Set of socket IDs
   private readonly userSockets = new Map<string, Set<string>>();
   // Map socketId -> userId
@@ -64,6 +68,8 @@ export class EventsGateway
     } else {
       this.logger.log(`Client connected: ${client.id} (anonymous)`);
     }
+    // Gửi ngay trạng thái các kênh voice cho client vừa kết nối
+    client.emit('voice_channels_state_update', this.getAllVoiceRoomsState());
   }
 
   handleDisconnect(client: Socket) {
@@ -96,8 +102,11 @@ export class EventsGateway
       this.logger.log(
         `Socket ${client.id} authenticated as user ${data.userId}`,
       );
+      // Gửi trạng thái kênh voice cho client
+      client.emit('voice_channels_state_update', this.getAllVoiceRoomsState());
     }
   }
+
 
   @SubscribeMessage('join_room')
   handleJoinRoom(
@@ -128,10 +137,11 @@ export class EventsGateway
   // ==========================================
 
   @SubscribeMessage('voice_join')
-  handleJoinVoice(
+  async handleJoinVoice(
     @ConnectedSocket() client: Socket,
     @MessageBody()
     data: {
+
       channelId: string;
       userId: string;
       username?: string;
@@ -150,16 +160,35 @@ export class EventsGateway
     void client.join(roomKey);
     this.socketVoiceChannel.set(client.id, channelId);
 
-    if (!this.voiceRooms.has(channelId)) {
-      this.voiceRooms.set(channelId, new Map());
+    let avatarUrl = data.avatarUrl || null;
+    let displayName = data.displayName || data.username || 'Người dùng';
+    let username = data.username || 'user';
+
+    // Auto-fetch profile from Supabase if avatarUrl is missing
+    if (!avatarUrl && data.userId && this.supabase?.admin) {
+      try {
+        const { data: profile } = await this.supabase.admin
+          .from('profiles')
+          .select('avatar_url, display_name, username')
+          .eq('id', data.userId)
+          .single();
+        if (profile) {
+          if (profile.avatar_url) avatarUrl = profile.avatar_url;
+          if (profile.display_name) displayName = profile.display_name;
+          if (profile.username) username = profile.username;
+        }
+      } catch {
+        // ignore
+      }
     }
+
 
     const participant: VoiceParticipant = {
       socketId: client.id,
       userId: data.userId,
-      username: data.username,
-      displayName: data.displayName || data.username || 'Người dùng',
-      avatarUrl: data.avatarUrl || null,
+      username,
+      displayName,
+      avatarUrl,
       isMuted: false,
       isDeafened: false,
       isSpeaking: false,

@@ -7,6 +7,8 @@ export interface GetTokenDto {
   channelId: string;
   userId: string;
   displayName?: string;
+  username?: string;
+  avatarUrl?: string | null;
 }
 
 @Controller('livekit')
@@ -18,14 +20,20 @@ export class LiveKitController {
 
   @Post('token')
   async getToken(@Body() body: GetTokenDto) {
-    const { channelId, userId, displayName } = body;
+    const { channelId, userId, displayName, username, avatarUrl } = body;
 
     if (!channelId || !userId) {
       throw new BadRequestException('channelId và userId là bắt buộc');
     }
 
     const roomName = `channel-${channelId}`;
-    const token = await this.livekitService.generateToken(roomName, userId, displayName);
+    const token = await this.livekitService.generateToken(
+      roomName,
+      userId,
+      displayName,
+      username,
+      avatarUrl,
+    );
     const livekitUrl =
       this.config.get('LIVEKIT_URL', { infer: true }) ||
       process.env.LIVEKIT_URL ||
@@ -40,3 +48,4 @@ export class LiveKitController {
     };
   }
 }
+
